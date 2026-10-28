@@ -1,3 +1,25 @@
+# Environment and Secrets (CRÍTICO: Bloqueo de credenciales y API Keys)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+*.env
+firebase-applet-config.json
+firebase_applet_config.json
+serviceAccountKey.json
+service-account*.json
+credentials.json
+
+# Dependencies
+node_modules/
+
+# Production build outputs
+dist/
+dist-ssr/
+build/
+
 # Logs
 logs
 *.log
@@ -6,14 +28,13 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-node_modules
-*.local
 
-# Editor directories and files
+# OS and Editor files
+.DS_Store
+Thumbs.db
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
+.idea/
 *.suo
 *.ntvs*
 *.njsproj

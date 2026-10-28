@@ -47,9 +47,9 @@ const AdminConsolaRoute: React.FC = () => {
 
   if (isCheckingAuth) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
-        <div className="w-10 h-10 border-4 border-slate-700 border-t-emerald-500 rounded-full animate-spin"></div>
-        <div className="font-bold text-slate-400 text-xs tracking-widest uppercase">
+      <div className="min-h-screen bg-[#151515] flex flex-col items-center justify-center gap-4">
+        <div className="w-10 h-10 border-3 border-neutral-800 border-t-orange-500 rounded-full animate-spin"></div>
+        <div className="font-bold text-neutral-400 text-xs tracking-widest uppercase">
           Cargando Panel de Administración...
         </div>
       </div>
@@ -103,9 +103,9 @@ const POSTerminalRoute: React.FC = () => {
 
   if (isCheckingAuth) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
-        <div className="w-10 h-10 border-4 border-slate-700 border-t-emerald-500 rounded-full animate-spin"></div>
-        <div className="font-bold text-slate-400 text-xs tracking-widest uppercase">
+      <div className="min-h-screen bg-[#151515] flex flex-col items-center justify-center gap-4">
+        <div className="w-10 h-10 border-3 border-neutral-800 border-t-orange-500 rounded-full animate-spin"></div>
+        <div className="font-bold text-neutral-400 text-xs tracking-widest uppercase">
           Iniciando Terminal de Mozos...
         </div>
       </div>

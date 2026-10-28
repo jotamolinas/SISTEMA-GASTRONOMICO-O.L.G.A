@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { emailSignIn, emailSignUp, resetPassword } from '../services/auth';
-import { UtensilsCrossed, ArrowRight, Mail, Key, AlertTriangle } from 'lucide-react';
+import { ArrowRight, Mail, Key, AlertTriangle } from 'lucide-react';
 
 interface LoginScreenProps {
   onLogin: () => void;
@@ -77,8 +77,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, sessionRevoke
   return (
     <div className="min-h-screen bg-[#151515] flex items-center justify-center p-4 font-sans select-none">
       <div className="bg-[#222222] max-w-md w-full box-border rounded-2xl p-8 shadow-sm flex flex-col items-center text-center border border-neutral-800 relative">
-        <div className="w-14 h-14 bg-[#151515] rounded-xl flex items-center justify-center mb-4 border border-neutral-800">
-          <UtensilsCrossed className="w-7 h-7 text-orange-500" />
+        <div className="w-16 h-16 bg-black rounded-2xl flex items-center justify-center mb-4 border border-neutral-800 overflow-hidden shadow-xs">
+          <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
         </div>
         
         <h1 className="text-2xl font-bold text-white tracking-tight mb-1">

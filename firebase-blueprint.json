@@ -2,6 +2,53 @@
   "project_id": "nipponguay",
   "collections": [
     {
+      "name": "productos",
+      "description": "Catálogo de productos e inventario gastronómico (bebidas, comidas, fardos y stock).",
+      "security_rules": {
+        "read": "true",
+        "write": "request.auth != null"
+      },
+      "schema": {
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "stock": { "type": "number" },
+        "boxSize": { "type": "number" },
+        "barcode": { "type": "string", "optional": true },
+        "unit": { "type": "string" }
+      }
+    },
+    {
+      "name": "ventas",
+      "description": "Registro de tickets y comandas cobradas en el POS con descuento automático de stock.",
+      "security_rules": {
+        "read": "request.auth != null",
+        "write": "request.auth != null"
+      },
+      "schema": {
+        "items": { "type": "array" },
+        "total": { "type": "number" },
+        "mesa": { "type": "string" },
+        "fecha": { "type": "string" }
+      }
+    },
+    {
+      "name": "comandas_activas",
+      "description": "Comandas enviadas a la cocina en tiempo real desde la terminal de mozos.",
+      "security_rules": {
+        "read": "true",
+        "write": "true"
+      },
+      "schema": {
+        "mesa": { "type": "string" },
+        "items": { "type": "array" },
+        "estado": { "type": "string" },
+        "fecha": { "type": "string" },
+        "total": { "type": "number", "optional": true },
+        "nota": { "type": "string", "optional": true }
+      }
+    },
+    {
       "name": "users",
       "description": "Fichas de perfiles de usuarios de la Escribanía.",
       "security_rules": {

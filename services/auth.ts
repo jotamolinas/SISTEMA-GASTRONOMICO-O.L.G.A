@@ -1,25 +1,20 @@
-import { initializeApp } from "firebase/app";
 import { getAuth, onAuthStateChanged, User, signInAnonymously, RecaptchaVerifier, signInWithPhoneNumber, setPersistence, browserLocalPersistence, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { app, db } from "./firebase";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyDGxd8nQTXTRpmwTKAw9xLl9uiTZuRT2UM",
-  authDomain: "nipponguay.firebaseapp.com",
-  projectId: "nipponguay",
-  storageBucket: "nipponguay.firebasestorage.app",
-  messagingSenderId: "933976114072",
-  appId: "1:933976114072:web:ee8106d228b40ad09961ed"
-};
+export { app, db };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+let authInstance: any = null;
+try {
+  authInstance = getAuth(app);
+  // Asegurar persistencia local
+  setPersistence(authInstance, browserLocalPersistence).catch(console.error);
+} catch (err) {
+  console.warn("Advertencia al inicializar Firebase Auth:", err);
+}
+
+export const auth = authInstance;
 export const storage = getStorage(app);
-
-// Asegurar persistencia local
-setPersistence(auth, browserLocalPersistence).catch(console.error);
-
 
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
@@ -28,6 +23,10 @@ export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
+  if (!auth) {
+    if (onAuthFailure) onAuthFailure();
+    return () => {};
+  }
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
       if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken || '');
@@ -129,11 +128,14 @@ export const logout = async () => {
   } catch (e) {
     console.warn('Error purgando localStorage en logout:', e);
   }
-  await auth.signOut();
+  if (auth) {
+    await auth.signOut();
+  }
   cachedAccessToken = null;
 };
 
 export const emailSignIn = async (email: string, password: string): Promise<{ user: User } | null> => {
+  if (!auth) throw new Error('Firebase Auth no está configurado.');
   try {
     isSigningIn = true;
     const cleanEmail = (email || '').trim().toLowerCase();
@@ -151,6 +153,7 @@ export const emailSignIn = async (email: string, password: string): Promise<{ us
 };
 
 export const emailSignUp = async (email: string, password: string): Promise<{ user: User } | null> => {
+  if (!auth) throw new Error('Firebase Auth no está configurado.');
   try {
     isSigningIn = true;
     const cleanEmail = (email || '').trim().toLowerCase();
@@ -193,6 +196,7 @@ export const emailSignUp = async (email: string, password: string): Promise<{ us
 };
 
 export const resetPassword = async (email: string): Promise<void> => {
+  if (!auth) throw new Error('Firebase Auth no está configurado.');
   try {
     const cleanEmail = (email || '').trim().toLowerCase();
     await sendPasswordResetEmail(auth, cleanEmail);

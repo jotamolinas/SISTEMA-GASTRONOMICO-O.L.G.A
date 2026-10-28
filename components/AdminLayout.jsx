@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AdminSidebar } from './AdminSidebar';
 import { DashboardHome } from './DashboardHome';
+import { InventoryManager } from './InventoryManager';
 import { 
   Tablet, 
   ExternalLink, 
@@ -25,51 +26,7 @@ export const AdminLayout = ({ currentUser, onLogout }) => {
         return <DashboardHome />;
 
       case 'inventario':
-        return (
-          <div className="space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#222222] border border-neutral-800 p-5 rounded-xl">
-              <div>
-                <h2 className="text-lg font-bold text-white">Inventario Rápido</h2>
-                <p className="text-xs text-neutral-400 mt-0.5">
-                  Descuento automático de existencias por cada plato o bebida comandeada en el POS.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="px-3.5 py-2 bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold uppercase tracking-wider rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Añadir Insumo</span>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {[
-                { name: 'Carne Molida Smash (KG)', stock: '4.5 kg', alert: true },
-                { name: 'Barril Cerveza IPA (Litros)', stock: '32 L', alert: false },
-                { name: 'Pan de Papa Brioche (Unidades)', stock: '18 u.', alert: true },
-                { name: 'Queso Cheddar Fetas', stock: '120 fetas', alert: false },
-                { name: 'Papas Congeladas Bastón (KG)', stock: '15.0 kg', alert: false },
-                { name: 'Gin Botánico 750ml (Botellas)', stock: '4 botellas', alert: false }
-              ].map((item, idx) => (
-                <div key={idx} className="bg-[#222222] border border-neutral-800 p-4 rounded-xl flex flex-col justify-between">
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="font-semibold text-white text-xs">{item.name}</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
-                      item.alert ? 'bg-red-950/60 text-red-400 border border-red-900/40' : 'bg-[#151515] text-neutral-400'
-                    }`}>
-                      {item.alert ? 'Reponer' : 'Óptimo'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-baseline pt-2 border-t border-neutral-800">
-                    <span className="text-[10px] text-neutral-500 uppercase">Stock actual:</span>
-                    <span className="text-sm font-bold text-white font-mono">{item.stock}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
+        return <InventoryManager />;
 
       case 'menu-qr':
         return (

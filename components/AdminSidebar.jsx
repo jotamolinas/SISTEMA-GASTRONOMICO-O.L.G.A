@@ -5,7 +5,6 @@ import {
   Package, 
   QrCode, 
   Settings, 
-  UtensilsCrossed, 
   ExternalLink, 
   LogOut, 
   Menu, 
@@ -63,9 +62,11 @@ export const AdminSidebar = ({
         {/* Encabezado */}
         <div className="p-5 border-b border-neutral-800/80">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-[#222222] border border-neutral-700/60 flex items-center justify-center shrink-0">
-              <UtensilsCrossed className="w-4 h-4 text-orange-500" />
-            </div>
+            <img 
+              src="/logo.png" 
+              alt="Logo" 
+              className="w-9 h-9 rounded-lg object-contain bg-black border border-neutral-800 shrink-0 shadow-xs" 
+            />
             <div>
               <span className="font-bold text-base tracking-tight text-white block leading-none">
                 Gastro<span className="text-orange-500">POS</span>

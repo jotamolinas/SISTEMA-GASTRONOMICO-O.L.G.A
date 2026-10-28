@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  UtensilsCrossed, 
   Search, 
   ChevronDown, 
   Check, 
@@ -28,9 +27,11 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 
 const Logo: React.FC<{ darkTheme?: boolean }> = ({ darkTheme = false }) => (
   <div className="flex items-center gap-3">
-    <div className="w-10 h-10 rounded-xl bg-[#222222] border border-neutral-700 flex items-center justify-center shrink-0">
-      <UtensilsCrossed className="w-5 h-5 text-orange-500" />
-    </div>
+    <img 
+      src="/logo.png" 
+      alt="Logo" 
+      className="w-10 h-10 rounded-xl object-contain bg-black border border-neutral-800 shrink-0 shadow-xs" 
+    />
     <div className="flex flex-col">
       <div className="flex items-center gap-1.5">
         <span className="font-bold tracking-tight text-xl leading-none text-white">
