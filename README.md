@@ -1,11 +1,11 @@
-<div align="center">
+# Sistema OLGA
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+Operational management and process automation system for streamlined administrative control.
 
-  <h1>Built with AI Studio</h2>
+## Overview
+An advanced digital solution designed for operational management, process automation, and centralized administrative control.
 
-  <p>The fastest path from prompt to production with Gemini.</p>
-
-  <a href="https://aistudio.google.com/apps">Start building</a>
-
-</div>
+## Features
+* Streamlined data workflows
+* Centralized administrative dashboard
+* High-performance responsive web architecture
