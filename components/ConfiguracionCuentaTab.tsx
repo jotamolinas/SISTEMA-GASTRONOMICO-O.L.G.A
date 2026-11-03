@@ -4,6 +4,21 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../services/auth';
 import { Save, CheckCircle2, ShieldCheck, Building, User as UserIcon, AlertCircle, Image as ImageIcon, Upload } from 'lucide-react';
 
+const getSafeImageSource = (source: string | null | undefined): string | null => {
+  if (!source) return null;
+
+  if (/^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/i.test(source)) {
+    return source;
+  }
+
+  try {
+    const url = new URL(source);
+    return url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
+};
+
 interface ConfiguracionCuentaTabProps {
   currentUser: any;
   userProfile: any;
@@ -157,6 +172,7 @@ export const ConfiguracionCuentaTab: React.FC<ConfiguracionCuentaTabProps> = ({ 
 
   const plan = userProfile?.planActual?.toLowerCase() || formData.planActual?.toLowerCase() || '';
   const tieneAccesoEquipo = plan.includes('empresa') || plan.includes('full') || plan.includes('pro') || plan.includes('corporativo') || plan.includes('profesional');
+  const logoSource = getSafeImageSource(formData.logoUrl || (formData as any).logoBase64);
   
   const planLimitValue = (plan.includes('empresa') || plan.includes('corporativo') || plan.includes('full')) ? 10 :
                          (plan.includes('pro') || plan.includes('profesional')) ? 3 : 1;
@@ -220,8 +236,8 @@ return (
                   <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-2"></div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-blue-500">Subiendo...</span>
                 </div>
-              ) : formData.logoUrl || (formData as any).logoBase64 ? (
-                <img src={formData.logoUrl || (formData as any).logoBase64} alt="Preview Logo" className="max-w-full box-border max-h-full object-contain p-2" />
+              ) : logoSource ? (
+                <img src={logoSource} alt="Preview Logo" className="max-w-full box-border max-h-full object-contain p-2" />
               ) : (
                 <div className="text-center text-slate-400 p-4">
                   <ImageIcon className="w-8 h-8 mx-auto mb-1 opacity-20" />
