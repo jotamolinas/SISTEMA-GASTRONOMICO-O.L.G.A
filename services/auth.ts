@@ -92,10 +92,19 @@ export const getAccessToken = async (): Promise<string | null> => {
   return cachedAccessToken;
 };
 
+export const generateSecureSessionId = (): string => {
+  if (typeof crypto === 'undefined') {
+    throw new Error('A secure random number generator is required to create a session ID.');
+  }
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  const randomBytes = crypto.getRandomValues(new Uint8Array(16));
+  return `sess_${Array.from(randomBytes, byte => byte.toString(16).padStart(2, '0')).join('')}`;
+};
+
 export const registerNewSession = async (uid: string): Promise<string> => {
-  const localSessionId = typeof crypto !== 'undefined' && crypto.randomUUID
-    ? crypto.randomUUID()
-    : 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+  const localSessionId = generateSecureSessionId();
   localStorage.setItem('appSessionId', localSessionId);
   try {
     const { doc, setDoc } = await import('firebase/firestore');
@@ -205,4 +214,3 @@ export const resetPassword = async (email: string): Promise<void> => {
     throw error;
   }
 };
-
