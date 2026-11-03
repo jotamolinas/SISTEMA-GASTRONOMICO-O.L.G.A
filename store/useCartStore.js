@@ -1,22 +1,30 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-const DEFAULT_TABLES = {
-  'Mesa 1': [],
-  'Mesa 2': [],
-  'Mesa 3': [],
-  'Barra': []
-};
+// Generación Dinámica y Escalable de Mesas (Mesa 1 a Mesa 15, Barra y Delivery)
+export const AVAILABLE_TABLES = [
+  ...Array.from({ length: 15 }, (_, i) => `Mesa ${i + 1}`),
+  'Barra',
+  'Delivery'
+];
+
+// Inicialización del objeto tableCarts con un array vacío para cada mesa generada
+const DEFAULT_TABLES = AVAILABLE_TABLES.reduce((acc, table) => {
+  acc[table] = [];
+  return acc;
+}, {});
 
 /**
  * Store Zustand para el Carrito/Ticket y Estado de GastroPOS con arquitectura Local-First.
- * Maneja cuentas independientes por mesa ('Mesa 1', 'Mesa 2', 'Mesa 3', 'Barra').
+ * Maneja cuentas independientes por mesa generadas dinámicamente ('Mesa 1' a 'Mesa 15', 'Barra', 'Delivery').
  * Persiste automáticamente en localStorage para garantizar disponibilidad offline en salón.
  */
 export const useCartStore = create(
   persist(
     (set, get) => ({
-      // 1. Cuentas Separadas por Mesa en objeto tableCarts
+      // Catálogo de mesas disponibles en el salón
+      tables: AVAILABLE_TABLES,
+      // 1. Cuentas separadas por mesa inicializadas dinámicamente
       tableCarts: { ...DEFAULT_TABLES },
       // 2. Mesa Activa (por defecto 'Mesa 1')
       activeTable: 'Mesa 1',

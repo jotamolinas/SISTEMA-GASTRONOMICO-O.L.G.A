@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useCartStore } from '../store/useCartStore';
+import { useCartStore, AVAILABLE_TABLES } from '../store/useCartStore';
 import { db } from '../services/firebase';
 import { 
   writeBatch, 
@@ -43,8 +43,6 @@ export const formatCurrency = (amount) => {
   }).format(amount) + ' Gs.';
 };
 
-const TABLES = ['Mesa 1', 'Mesa 2', 'Mesa 3', 'Barra'];
-
 // Íconos sobrios de productos
 const ProductIcon = ({ type, category }) => {
   if (category === 'Bebidas') return <Beer className="w-6 h-6 text-orange-500" />;
@@ -78,6 +76,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
 
   // 2. CONEXIÓN AL STORE ZUSTAND (LOCAL-FIRST CON CUENTAS SEPARADAS POR MESA)
   const { 
+    tables,
     tableCarts, 
     activeTable, 
     setActiveTable, 
@@ -86,6 +85,8 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
     clearCart, 
     cartTotal 
   } = useCartStore();
+
+  const tablesList = tables || AVAILABLE_TABLES;
 
   // Carrito y productos exclusivos de la mesa activa seleccionada
   const cart = tableCarts?.[activeTable] || [];
@@ -313,18 +314,18 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
           </div>
         </div>
 
-        {/* Selector de Mesas Conectado a Zustand */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs text-neutral-400 font-medium hidden sm:inline mr-1">Mesa:</span>
-          <div className="flex bg-[#151515] p-1 rounded-lg border border-neutral-800">
-            {TABLES.map((table) => {
+        {/* Selector de Mesas Conectado a Zustand (Scroll Horizontal Escalable) */}
+        <div className="flex items-center gap-1.5 max-w-[45vw] sm:max-w-xs md:max-w-md lg:max-w-lg overflow-hidden">
+          <span className="text-xs text-neutral-400 font-medium hidden sm:inline mr-1 shrink-0">Mesa:</span>
+          <div className="flex overflow-x-auto no-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden bg-[#151515] p-1 rounded-lg border border-neutral-800 gap-1.5">
+            {tablesList.map((table) => {
               const tableItemCount = (tableCarts?.[table] || []).reduce((acc, i) => acc + (i.quantity || 1), 0);
               return (
                 <button
                   key={table}
                   type="button"
                   onClick={() => setActiveTable(table)}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer flex items-center gap-1.5 ${
+                  className={`min-w-max shrink-0 px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer flex items-center gap-1.5 ${
                     activeTable === table
                       ? 'bg-orange-600 text-white font-semibold'
                       : 'text-neutral-400 hover:text-white'
@@ -558,18 +559,18 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
               )}
             </div>
 
-            {/* Selector de Mesas en la cabecera del panel lateral derecho (el ticket del cliente) */}
+            {/* Selector de Mesas Escalable con Scroll Horizontal en el Ticket */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-[10px]">
                 <span className="uppercase font-bold tracking-wider text-neutral-400">
-                  Mesa / Cuenta:
+                  Mesa / Cuenta ({tablesList.length}):
                 </span>
                 <span className="text-orange-500 font-semibold font-mono">
                   {activeTable}
                 </span>
               </div>
-              <div className="grid grid-cols-4 gap-1.5">
-                {TABLES.map((table) => {
+              <div className="flex overflow-x-auto no-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden gap-2 pb-2">
+                {tablesList.map((table) => {
                   const isSelected = activeTable === table;
                   const count = (tableCarts?.[table] || []).reduce((acc, i) => acc + (i.quantity || 1), 0);
                   return (
@@ -577,16 +578,16 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                       key={table}
                       type="button"
                       onClick={() => setActiveTable(table)}
-                      className={`py-2 px-1.5 rounded-lg text-xs transition-colors cursor-pointer text-center truncate ${
+                      className={`min-w-max shrink-0 py-2 px-3 rounded-lg text-xs font-medium transition-colors cursor-pointer text-center flex items-center gap-1.5 ${
                         isSelected
                           ? 'bg-orange-600 text-white font-semibold'
                           : 'bg-neutral-800 text-neutral-400 hover:text-white'
                       }`}
                     >
-                      <span className="truncate">{table}</span>
+                      <span>{table}</span>
                       {count > 0 && (
-                        <span className={`ml-1 text-[10px] font-mono ${isSelected ? 'text-white' : 'text-neutral-300'}`}>
-                          ({count})
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${isSelected ? 'bg-orange-800 text-white' : 'bg-[#151515] text-orange-400'}`}>
+                          {count}
                         </span>
                       )}
                     </button>
