@@ -25,10 +25,6 @@ export default defineConfig(({ mode }) => {
         outDir: 'dist',
         emptyOutDir: true,
       },
-      define: {
-        'process.env.API_KEY': JSON.stringify(apiKey),
-        'process.env.GEMINI_API_KEY': JSON.stringify(apiKey)
-      },
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),

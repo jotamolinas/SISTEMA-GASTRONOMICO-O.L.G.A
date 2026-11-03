@@ -236,29 +236,35 @@ export const InventoryManager = () => {
     setModalOpen(true);
   };
 
-  // Eliminar Producto en Firestore (deleteDoc)
+  // Eliminar Producto en Firestore (deleteDoc) con validación estricta y confirmación
   const handleDeleteProduct = async (id, name) => {
-    console.log("Intentando borrar ID:", id);
-
-    if (!id) {
-      console.error("ID no definido para eliminar");
-      showToast("Error: No se encontró el ID del producto en Firestore");
+    // 1. Validación estricta del ID
+    if (!id || typeof id !== 'string' || id.trim() === '') {
+      console.error('[InventoryManager] Error: ID inválido o no definido para eliminar:', id);
+      alert('Error: No se encontró un ID válido del producto para eliminar.');
       return;
     }
 
-    if (!window.confirm(`¿Estás seguro de eliminar "${name || 'este producto'}" del inventario?`)) {
+    // 2. Confirmación manual obligatoria del usuario con window.confirm
+    const confirmMessage = `¿Estás seguro de que deseas eliminar permanentemente el producto "${name || 'este producto'}"?\nEsta acción no se puede deshacer.`;
+    const isConfirmed = window.confirm(confirmMessage);
+    if (!isConfirmed) {
       return;
     }
 
+    // 3. Try/Catch Obligatorio envolviendo deleteDoc
     try {
-      // 1. Si el ID existe, ejecutar deleteDoc en Firestore
+      console.log(`[InventoryManager] Eliminando documento de Firestore en productos/${id}...`);
       await deleteDoc(doc(db, 'productos', id));
-      // 2. Eliminar del estado local (UI) SOLO si la promesa de Firebase es exitosa
-      setItems((prev) => prev.filter((item) => item.id !== id));
+      console.log(`[InventoryManager] Documento con ID ${id} eliminado exitosamente de Firestore.`);
+
+      // 4. Actualización del estado local ÚNICAMENTE tras el éxito de Firestore
+      setItems((prevProducts) => prevProducts.filter((product) => product.id !== id));
       showToast(`Producto "${name || 'Producto'}" eliminado exitosamente`);
-    } catch (e) {
-      console.error('Error al eliminar producto en Firestore:', e);
-      showToast('Error al eliminar el producto en base de datos');
+    } catch (error) {
+      console.error('[InventoryManager] Error al eliminar producto en Firestore:', error);
+      const errorMessage = error?.message || 'Error desconocido al intentar eliminar el producto en Firestore.';
+      alert(`No se pudo eliminar el producto de Firestore:\n${errorMessage}`);
     }
   };
 
