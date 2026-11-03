@@ -2,15 +2,15 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 const DEFAULT_TABLES = {
-  'Mesa 01': [],
-  'Mesa 02': [],
-  'Barra 01': [],
-  'Delivery': []
+  'Mesa 1': [],
+  'Mesa 2': [],
+  'Mesa 3': [],
+  'Barra': []
 };
 
 /**
  * Store Zustand para el Carrito/Ticket y Estado de GastroPOS con arquitectura Local-First.
- * Soporta cuentas separadas por mesa (Mesa 01, Mesa 02, Barra 01, Delivery).
+ * Maneja cuentas independientes por mesa ('Mesa 1', 'Mesa 2', 'Mesa 3', 'Barra').
  * Persiste automáticamente en localStorage para garantizar disponibilidad offline en salón.
  */
 export const useCartStore = create(
@@ -18,8 +18,8 @@ export const useCartStore = create(
     (set, get) => ({
       // 1. Cuentas Separadas por Mesa en objeto tableCarts
       tableCarts: { ...DEFAULT_TABLES },
-      // 2. Mesa Activa (por defecto 'Mesa 01')
-      activeTable: 'Mesa 01',
+      // 2. Mesa Activa (por defecto 'Mesa 1')
+      activeTable: 'Mesa 1',
       products: [],
       isLoadingProducts: false,
 
@@ -51,13 +51,13 @@ export const useCartStore = create(
       },
 
       /**
-       * Añade un producto al ticket de la mesa activa seleccionada.
+       * Añade un producto al ticket de la mesa activa actual.
        * Si el producto ya existe en la mesa, incrementa su cantidad en 1.
        * Si no existe, lo agrega con cantidad 1.
        */
       addToCart: (product, targetTable) => {
         set((state) => {
-          const table = targetTable || state.activeTable || 'Mesa 01';
+          const table = targetTable || state.activeTable || 'Mesa 1';
           const currentTableCart = state.tableCarts[table] || [];
           const existingItemIndex = currentTableCart.findIndex((item) => item.id === product.id);
 
@@ -94,11 +94,11 @@ export const useCartStore = create(
 
       /**
        * Disminuye la cantidad de un ítem en 1 para la mesa activa.
-       * Si la cantidad llega a 0 (o menor o igual a 1), se elimina completamente del array de la mesa.
+       * Si la cantidad llega a 0 (o menor o igual a 1), se elimina completamente del ticket de la mesa activa.
        */
       removeFromCart: (productId, targetTable) => {
         set((state) => {
-          const table = targetTable || state.activeTable || 'Mesa 01';
+          const table = targetTable || state.activeTable || 'Mesa 1';
           const currentTableCart = state.tableCarts[table] || [];
           const item = currentTableCart.find((i) => i.id === productId);
           if (!item) return state;
@@ -122,11 +122,11 @@ export const useCartStore = create(
       },
 
       /**
-       * Vacía completamente el ticket de la mesa activa seleccionada.
+       * Vacía completamente el ticket EXCLUSIVAMENTE de la mesa activa seleccionada.
        */
       clearCart: (targetTable) => {
         set((state) => {
-          const table = targetTable || state.activeTable || 'Mesa 01';
+          const table = targetTable || state.activeTable || 'Mesa 1';
           return {
             tableCarts: {
               ...state.tableCarts,
@@ -137,7 +137,7 @@ export const useCartStore = create(
       },
 
       /**
-       * Función para obtener el carrito activo actual de forma auxiliar
+       * Función para obtener el carrito activo actual
        */
       getActiveCart: () => {
         const { tableCarts, activeTable } = get();
@@ -163,7 +163,7 @@ export const useCartStore = create(
       merge: (persistedState, currentState) => ({
         ...currentState,
         ...persistedState,
-        activeTable: persistedState?.activeTable || 'Mesa 01',
+        activeTable: persistedState?.activeTable || 'Mesa 1',
         tableCarts: {
           ...DEFAULT_TABLES,
           ...(persistedState?.tableCarts || {})

@@ -43,6 +43,8 @@ export const formatCurrency = (amount) => {
   }).format(amount) + ' Gs.';
 };
 
+const TABLES = ['Mesa 1', 'Mesa 2', 'Mesa 3', 'Barra'];
+
 // Íconos sobrios de productos
 const ProductIcon = ({ type, category }) => {
   if (category === 'Bebidas') return <Beer className="w-6 h-6 text-orange-500" />;
@@ -162,7 +164,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
 
       const ventaPayload = {
         id: ventaDocRef.id,
-        mesa: activeTable || 'Mesa 01',
+        mesa: activeTable || 'Mesa 1',
         total: Number(total) || 0,
         items: cart.map((i) => ({
           id: i.id,
@@ -224,7 +226,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
     try {
       const comandasCol = collection(db, 'comandas_activas');
       const comandaPayload = {
-        mesa: activeTable || 'Mesa 01',
+        mesa: activeTable || 'Mesa 1',
         items: cart.map((i) => ({
           id: i.id,
           name: i.name,
@@ -315,7 +317,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-neutral-400 font-medium hidden sm:inline mr-1">Mesa:</span>
           <div className="flex bg-[#151515] p-1 rounded-lg border border-neutral-800">
-            {['Mesa 01', 'Mesa 02', 'Barra 01', 'Delivery'].map((table) => {
+            {TABLES.map((table) => {
               const tableItemCount = (tableCarts?.[table] || []).reduce((acc, i) => acc + (i.quantity || 1), 0);
               return (
                 <button
@@ -556,18 +558,18 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
               )}
             </div>
 
-            {/* Selector Visual Minimalista de Mesa (Mesa 01, Mesa 02, Barra 01, Delivery) */}
+            {/* Selector de Mesas en la cabecera del panel lateral derecho (el ticket del cliente) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-[10px]">
                 <span className="uppercase font-bold tracking-wider text-neutral-400">
-                  Mesa / Ubicación:
+                  Mesa / Cuenta:
                 </span>
-                <span className="text-orange-400 font-semibold font-mono">
+                <span className="text-orange-500 font-semibold font-mono">
                   {activeTable}
                 </span>
               </div>
               <div className="grid grid-cols-4 gap-1.5">
-                {['Mesa 01', 'Mesa 02', 'Barra 01', 'Delivery'].map((table) => {
+                {TABLES.map((table) => {
                   const isSelected = activeTable === table;
                   const count = (tableCarts?.[table] || []).reduce((acc, i) => acc + (i.quantity || 1), 0);
                   return (
@@ -575,15 +577,15 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                       key={table}
                       type="button"
                       onClick={() => setActiveTable(table)}
-                      className={`py-1.5 px-2 rounded-lg text-xs font-semibold tracking-tight transition-all duration-150 cursor-pointer text-center truncate ${
+                      className={`py-2 px-1.5 rounded-lg text-xs transition-colors cursor-pointer text-center truncate ${
                         isSelected
-                          ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20 ring-1 ring-orange-500 font-bold'
-                          : 'bg-[#222222] text-neutral-400 hover:text-white hover:bg-neutral-800 border border-neutral-800'
+                          ? 'bg-orange-600 text-white font-semibold'
+                          : 'bg-neutral-800 text-neutral-400 hover:text-white'
                       }`}
                     >
-                      <span>{table}</span>
+                      <span className="truncate">{table}</span>
                       {count > 0 && (
-                        <span className={`ml-1 text-[10px] font-mono ${isSelected ? 'text-orange-100 font-bold' : 'text-orange-400'}`}>
+                        <span className={`ml-1 text-[10px] font-mono ${isSelected ? 'text-white' : 'text-neutral-300'}`}>
                           ({count})
                         </span>
                       )}
