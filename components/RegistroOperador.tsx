@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { auth, db } from '../services/auth';
+import { auth, db, generateSecureSessionId } from '../services/auth';
 import { 
   Lock, 
   Mail, 
@@ -152,9 +152,7 @@ export const RegistroOperador: React.FC = () => {
         fecha_registro: serverTimestamp()
       }).catch(err => console.warn('Advertencia actualizando invitación:', err));
 
-      const localSessionId = typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+      const localSessionId = generateSecureSessionId();
       localStorage.setItem('appSessionId', localSessionId);
 
       // 3. Crear el perfil del usuario en la colección users
