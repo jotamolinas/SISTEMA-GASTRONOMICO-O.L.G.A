@@ -1,30 +1,22 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-// Generación Dinámica y Escalable de Mesas (Mesa 1 a Mesa 15, Barra y Delivery)
-export const AVAILABLE_TABLES = [
-  ...Array.from({ length: 15 }, (_, i) => `Mesa ${i + 1}`),
-  'Barra',
-  'Delivery'
-];
-
-// Inicialización del objeto tableCarts con un array vacío para cada mesa generada
-const DEFAULT_TABLES = AVAILABLE_TABLES.reduce((acc, table) => {
-  acc[table] = [];
-  return acc;
-}, {});
+const DEFAULT_TABLES = {
+  'Mesa 1': [],
+  'Barra': [],
+  'Delivery': []
+};
 
 /**
  * Store Zustand para el Carrito/Ticket y Estado de GastroPOS con arquitectura Local-First.
- * Maneja cuentas independientes por mesa generadas dinámicamente ('Mesa 1' a 'Mesa 15', 'Barra', 'Delivery').
+ * Maneja cuentas independientes por mesa con creación dinámica a demanda.
+ * Estado inicial limpio: 'Mesa 1', 'Barra', 'Delivery'.
  * Persiste automáticamente en localStorage para garantizar disponibilidad offline en salón.
  */
 export const useCartStore = create(
   persist(
     (set, get) => ({
-      // Catálogo de mesas disponibles en el salón
-      tables: AVAILABLE_TABLES,
-      // 1. Cuentas separadas por mesa inicializadas dinámicamente
+      // 1. Cuentas separadas por mesa con estado inicial limpio
       tableCarts: { ...DEFAULT_TABLES },
       // 2. Mesa Activa (por defecto 'Mesa 1')
       activeTable: 'Mesa 1',
@@ -40,6 +32,21 @@ export const useCartStore = create(
           tableCarts: {
             ...state.tableCarts,
             [table]: state.tableCarts[table] || []
+          }
+        }));
+      },
+
+      /**
+       * Crea una nueva mesa dinámicamente y la selecciona de inmediato
+       */
+      addTable: (tableName) => {
+        if (!tableName || !tableName.trim()) return;
+        const formattedName = tableName.trim();
+        set((state) => ({
+          activeTable: formattedName,
+          tableCarts: {
+            ...state.tableCarts,
+            [formattedName]: state.tableCarts[formattedName] || []
           }
         }));
       },

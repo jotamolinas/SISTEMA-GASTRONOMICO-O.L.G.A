@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useCartStore, AVAILABLE_TABLES } from '../store/useCartStore';
+import { useCartStore } from '../store/useCartStore';
 import { db } from '../services/firebase';
 import { 
   writeBatch, 
@@ -76,17 +76,29 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
 
   // 2. CONEXIÓN AL STORE ZUSTAND (LOCAL-FIRST CON CUENTAS SEPARADAS POR MESA)
   const { 
-    tables,
     tableCarts, 
     activeTable, 
     setActiveTable, 
+    addTable,
     addToCart, 
     removeFromCart, 
     clearCart, 
     cartTotal 
   } = useCartStore();
 
-  const tablesList = tables || AVAILABLE_TABLES;
+  // Lista dinámica de mesas a partir de las llaves en tableCarts
+  const tablesList = useMemo(() => {
+    const keys = Object.keys(tableCarts || {});
+    return keys.length > 0 ? keys : ['Mesa 1', 'Barra', 'Delivery'];
+  }, [tableCarts]);
+
+  const handleAddNewTable = () => {
+    const newTable = window.prompt("Nombre de la nueva mesa (ej. Mesa 4, Patio 1):");
+    if (newTable && newTable.trim()) {
+      const cleanName = newTable.trim();
+      addTable(cleanName);
+    }
+  };
 
   // Carrito y productos exclusivos de la mesa activa seleccionada
   const cart = tableCarts?.[activeTable] || [];
@@ -314,10 +326,10 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
           </div>
         </div>
 
-        {/* Selector de Mesas Conectado a Zustand (Scroll Horizontal Escalable) */}
+        {/* Selector de Mesas Conectado a Zustand (Una sola línea horizontal deslizable) */}
         <div className="flex items-center gap-1.5 max-w-[45vw] sm:max-w-xs md:max-w-md lg:max-w-lg overflow-hidden">
           <span className="text-xs text-neutral-400 font-medium hidden sm:inline mr-1 shrink-0">Mesa:</span>
-          <div className="flex overflow-x-auto no-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden bg-[#151515] p-1 rounded-lg border border-neutral-800 gap-1.5">
+          <div className="flex flex-row overflow-x-auto whitespace-nowrap items-center gap-1.5 p-1 bg-[#151515] rounded-lg border border-neutral-800 hide-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {tablesList.map((table) => {
               const tableItemCount = (tableCarts?.[table] || []).reduce((acc, i) => acc + (i.quantity || 1), 0);
               return (
@@ -342,6 +354,16 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                 </button>
               );
             })}
+
+            {/* Botón + Crear Mesa */}
+            <button
+              type="button"
+              onClick={handleAddNewTable}
+              className="p-1 px-1.5 rounded-md bg-neutral-800 hover:bg-neutral-700 text-orange-500 font-bold text-xs flex items-center justify-center shrink-0 cursor-pointer transition-colors"
+              title="Crear nueva mesa (ej. Mesa 4, Patio 1)"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
 
@@ -559,7 +581,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
               )}
             </div>
 
-            {/* Selector de Mesas Escalable con Scroll Horizontal en el Ticket */}
+            {/* Selector de Mesas con Creación a Demanda (Una sola línea horizontal deslizable) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-[10px]">
                 <span className="uppercase font-bold tracking-wider text-neutral-400">
@@ -569,7 +591,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                   {activeTable}
                 </span>
               </div>
-              <div className="flex overflow-x-auto no-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden gap-2 pb-2">
+              <div className="flex flex-row overflow-x-auto whitespace-nowrap items-center gap-2 pb-2 hide-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {tablesList.map((table) => {
                   const isSelected = activeTable === table;
                   const count = (tableCarts?.[table] || []).reduce((acc, i) => acc + (i.quantity || 1), 0);
@@ -593,6 +615,17 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                     </button>
                   );
                 })}
+
+                {/* Botón + Crear Mesa al final de la lista */}
+                <button
+                  type="button"
+                  onClick={handleAddNewTable}
+                  className="min-w-max shrink-0 py-2 px-2.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-orange-500 hover:text-orange-400 border border-neutral-700/60 text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                  title="Crear nueva mesa (ej. Mesa 4, Patio 1)"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span className="text-[11px] font-medium">Nueva</span>
+                </button>
               </div>
             </div>
           </div>
