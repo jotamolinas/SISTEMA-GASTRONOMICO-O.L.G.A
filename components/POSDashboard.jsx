@@ -94,22 +94,39 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
     return keys.length > 0 ? keys : ['Mesa 1', 'Mesa 2', 'Mesa 3'];
   }, [tableCarts]);
 
-  // Al hacer clic en +: calcula cuántas mesas existen y sugiere el nombre
-  const handleAddNewTable = () => {
+  // Estados para el Modal de Agregar / Renombrar Mesa (Sin window.prompt)
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [modalType, setModalType] = useState('add'); // 'add' o 'rename'
+  const [tableNameInput, setTableNameInput] = useState('');
+
+  // Al tocar "+": calcula sugerencia de mesa y abre modal
+  const handleOpenAddModal = () => {
+    setModalType('add');
     const tableCount = Object.keys(tableCarts || {}).length;
-    const suggestedName = `Mesa ${tableCount + 1}`;
-    const newTable = window.prompt("Nombre de la nueva cuenta/mesa:", suggestedName);
-    if (newTable && newTable.trim()) {
-      addTable(newTable.trim());
-    }
+    setTableNameInput('Mesa ' + (tableCount + 1));
+    setShowNameModal(true);
   };
 
-  // Renombrar la mesa activa actual
-  const handleRenameActiveTable = () => {
-    const newName = window.prompt("Nuevo nombre para la mesa:", activeTable);
-    if (newName && newName.trim() && newName.trim() !== activeTable) {
-      renameTable(activeTable, newName.trim());
+  // Al tocar "✏️": precarga nombre actual y abre modal
+  const handleOpenRenameModal = () => {
+    setModalType('rename');
+    setTableNameInput(activeTable || 'Mesa 1');
+    setShowNameModal(true);
+  };
+
+  // Submit del modal
+  const handleModalSubmit = (e) => {
+    if (e) e.preventDefault();
+    const cleanName = tableNameInput.trim();
+    if (!cleanName) return;
+
+    if (modalType === 'add') {
+      addTable(cleanName);
+    } else if (modalType === 'rename') {
+      renameTable(activeTable, cleanName);
     }
+
+    setShowNameModal(false);
   };
 
   // Carrito y productos exclusivos de la mesa activa seleccionada
@@ -370,14 +387,11 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
             {/* Botón + Crear Mesa */}
             <button
               type="button"
-              onClick={handleAddNewTable}
+              onClick={handleOpenAddModal}
               className="p-1 px-1.5 rounded-md bg-[#222222] hover:bg-neutral-800 text-orange-500 font-bold text-xs flex items-center justify-center shrink-0 cursor-pointer transition-colors border border-neutral-800 shadow-xs"
               title="Añadir nueva mesa / cuenta"
             >
               <Plus className="w-3.5 h-3.5 text-orange-500" />
-            </button>
-            >
-              <Plus className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -582,7 +596,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                 {/* Botón Agregar (+) con fondo oscuro e ícono + naranja */}
                 <button
                   type="button"
-                  onClick={handleAddNewTable}
+                  onClick={handleOpenAddModal}
                   className="p-1 rounded bg-[#222222] hover:bg-neutral-800 text-orange-500 border border-neutral-800 transition-colors cursor-pointer flex items-center justify-center shadow-xs"
                   title="Añadir nueva mesa / cuenta"
                 >
@@ -596,7 +610,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                   {/* Botón Renombrar Mesa Activa */}
                   <button
                     type="button"
-                    onClick={handleRenameActiveTable}
+                    onClick={handleOpenRenameModal}
                     className="p-1 rounded bg-[#222222] hover:bg-neutral-800 text-neutral-400 hover:text-orange-400 border border-neutral-800 transition-colors cursor-pointer flex items-center justify-center"
                     title={`Renombrar ${activeTable}`}
                   >
@@ -627,7 +641,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                   </span>
                   <button
                     type="button"
-                    onClick={handleAddNewTable}
+                    onClick={handleOpenAddModal}
                     className="p-0.5 px-1 rounded bg-[#222222] hover:bg-neutral-800 text-orange-500 border border-neutral-800 transition-colors cursor-pointer flex items-center justify-center shadow-xs"
                     title="Añadir nueva mesa"
                   >
@@ -640,7 +654,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                   </span>
                   <button
                     type="button"
-                    onClick={handleRenameActiveTable}
+                    onClick={handleOpenRenameModal}
                     className="p-0.5 text-neutral-400 hover:text-orange-400 transition-colors cursor-pointer"
                     title="Renombrar mesa activa"
                   >
@@ -676,7 +690,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                 {/* Botón + Crear Mesa al final de la lista */}
                 <button
                   type="button"
-                  onClick={handleAddNewTable}
+                  onClick={handleOpenAddModal}
                   className="min-w-max shrink-0 py-2 px-2.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-orange-500 hover:text-orange-400 border border-neutral-700/60 text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
                   title="Crear nueva mesa (ej. Mesa 4, Patio 1)"
                 >
@@ -842,6 +856,76 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
           </div>
         </aside>
       </div>
+
+      {/* MODAL SUPERPUESTO PARA AGREGAR O RENOMBRAR MESA (SIN WINDOW.PROMPT) */}
+      {showNameModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div 
+            className="bg-[#222222] border border-neutral-800 rounded-xl p-5 w-full max-w-sm shadow-2xl relative text-neutral-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header del Modal */}
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-800 mb-4">
+              <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                {modalType === 'add' ? (
+                  <>
+                    <Plus className="w-4 h-4 text-orange-500" />
+                    <span>Nueva Mesa / Cuenta</span>
+                  </>
+                ) : (
+                  <>
+                    <Pencil className="w-3.5 h-3.5 text-orange-500" />
+                    <span>Renombrar Mesa</span>
+                  </>
+                )}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowNameModal(false)}
+                className="text-neutral-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+                title="Cerrar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Formulario */}
+            <form onSubmit={handleModalSubmit} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-neutral-400 mb-1.5">
+                  Nombre de la Mesa o Cuenta
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={tableNameInput}
+                  onChange={(e) => setTableNameInput(e.target.value)}
+                  placeholder="Ej. Mesa 4, Terraza, Barra 2"
+                  className="w-full px-3 py-2 bg-[#151515] border border-neutral-700 rounded-lg text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 transition-colors"
+                />
+              </div>
+
+              {/* Botones de acción Cancelar y Guardar */}
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNameModal(false)}
+                  className="px-3.5 py-2 rounded-lg text-xs font-semibold text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={!tableNameInput.trim()}
+                  className="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-orange-600 hover:bg-orange-500 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer shadow-sm"
+                >
+                  Guardar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* TOAST DE COMANDA REGISTRADA CON ÉXITO / ENVIADO A COCINA */}
       {successToast && (
