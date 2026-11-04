@@ -23,6 +23,7 @@ import {
   Search, 
   Plus, 
   Minus, 
+  Pencil,
   Trash2, 
   Receipt, 
   CreditCard, 
@@ -80,6 +81,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
     activeTable, 
     setActiveTable, 
     addTable,
+    renameTable,
     addToCart, 
     removeFromCart, 
     clearCart, 
@@ -89,14 +91,24 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
   // Lista dinámica de mesas a partir de las llaves en tableCarts
   const tablesList = useMemo(() => {
     const keys = Object.keys(tableCarts || {});
-    return keys.length > 0 ? keys : ['Mesa 1', 'Barra', 'Delivery'];
+    return keys.length > 0 ? keys : ['Mesa 1', 'Mesa 2', 'Mesa 3'];
   }, [tableCarts]);
 
+  // Al hacer clic en +: calcula cuántas mesas existen y sugiere el nombre
   const handleAddNewTable = () => {
-    const newTable = window.prompt("Nombre de la nueva mesa (ej. Mesa 4, Patio 1):");
+    const tableCount = Object.keys(tableCarts || {}).length;
+    const suggestedName = `Mesa ${tableCount + 1}`;
+    const newTable = window.prompt("Nombre de la nueva cuenta/mesa:", suggestedName);
     if (newTable && newTable.trim()) {
-      const cleanName = newTable.trim();
-      addTable(cleanName);
+      addTable(newTable.trim());
+    }
+  };
+
+  // Renombrar la mesa activa actual
+  const handleRenameActiveTable = () => {
+    const newName = window.prompt("Nuevo nombre para la mesa:", activeTable);
+    if (newName && newName.trim() && newName.trim() !== activeTable) {
+      renameTable(activeTable, newName.trim());
     }
   };
 
@@ -359,8 +371,11 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
             <button
               type="button"
               onClick={handleAddNewTable}
-              className="p-1 px-1.5 rounded-md bg-neutral-800 hover:bg-neutral-700 text-orange-500 font-bold text-xs flex items-center justify-center shrink-0 cursor-pointer transition-colors"
-              title="Crear nueva mesa (ej. Mesa 4, Patio 1)"
+              className="p-1 px-1.5 rounded-md bg-[#222222] hover:bg-neutral-800 text-orange-500 font-bold text-xs flex items-center justify-center shrink-0 cursor-pointer transition-colors border border-neutral-800 shadow-xs"
+              title="Añadir nueva mesa / cuenta"
+            >
+              <Plus className="w-3.5 h-3.5 text-orange-500" />
+            </button>
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -563,9 +578,31 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                 <h2 className="font-bold text-xs uppercase tracking-wider text-white">
                   Ticket de Venta
                 </h2>
-                <span className="px-2 py-0.5 bg-neutral-800 text-orange-400 border border-neutral-700/60 text-[10px] font-bold rounded">
-                  {activeTable}
-                </span>
+                
+                {/* Botón Agregar (+) con fondo oscuro e ícono + naranja */}
+                <button
+                  type="button"
+                  onClick={handleAddNewTable}
+                  className="p-1 rounded bg-[#222222] hover:bg-neutral-800 text-orange-500 border border-neutral-800 transition-colors cursor-pointer flex items-center justify-center shadow-xs"
+                  title="Añadir nueva mesa / cuenta"
+                >
+                  <Plus className="w-3.5 h-3.5 text-orange-500" />
+                </button>
+
+                <div className="flex items-center gap-1">
+                  <span className="px-2 py-0.5 bg-neutral-800 text-orange-400 border border-neutral-700/60 text-[10px] font-bold rounded">
+                    {activeTable}
+                  </span>
+                  {/* Botón Renombrar Mesa Activa */}
+                  <button
+                    type="button"
+                    onClick={handleRenameActiveTable}
+                    className="p-1 rounded bg-[#222222] hover:bg-neutral-800 text-neutral-400 hover:text-orange-400 border border-neutral-800 transition-colors cursor-pointer flex items-center justify-center"
+                    title={`Renombrar ${activeTable}`}
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
 
               {cart.length > 0 && (
@@ -584,12 +621,32 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
             {/* Selector de Mesas con Creación a Demanda (Una sola línea horizontal deslizable) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-[10px]">
-                <span className="uppercase font-bold tracking-wider text-neutral-400">
-                  Mesa / Cuenta ({tablesList.length}):
-                </span>
-                <span className="text-orange-500 font-semibold font-mono">
-                  {activeTable}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="uppercase font-bold tracking-wider text-neutral-400">
+                    Mesa / Cuenta ({tablesList.length}):
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleAddNewTable}
+                    className="p-0.5 px-1 rounded bg-[#222222] hover:bg-neutral-800 text-orange-500 border border-neutral-800 transition-colors cursor-pointer flex items-center justify-center shadow-xs"
+                    title="Añadir nueva mesa"
+                  >
+                    <Plus className="w-2.5 h-2.5 text-orange-500" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-orange-500 font-semibold font-mono">
+                    {activeTable}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleRenameActiveTable}
+                    className="p-0.5 text-neutral-400 hover:text-orange-400 transition-colors cursor-pointer"
+                    title="Renombrar mesa activa"
+                  >
+                    <Pencil className="w-2.5 h-2.5" />
+                  </button>
+                </div>
               </div>
               <div className="flex flex-row overflow-x-auto whitespace-nowrap items-center gap-2 pb-2 hide-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {tablesList.map((table) => {

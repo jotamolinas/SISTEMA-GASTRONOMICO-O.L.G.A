@@ -3,14 +3,14 @@ import { persist } from 'zustand/middleware';
 
 const DEFAULT_TABLES = {
   'Mesa 1': [],
-  'Barra': [],
-  'Delivery': []
+  'Mesa 2': [],
+  'Mesa 3': []
 };
 
 /**
  * Store Zustand para el Carrito/Ticket y Estado de GastroPOS con arquitectura Local-First.
- * Maneja cuentas independientes por mesa con creación dinámica a demanda.
- * Estado inicial limpio: 'Mesa 1', 'Barra', 'Delivery'.
+ * Maneja cuentas independientes por mesa con creación y renombrado dinámico.
+ * Estado inicial limpio: 'Mesa 1', 'Mesa 2', 'Mesa 3'.
  * Persiste automáticamente en localStorage para garantizar disponibilidad offline en salón.
  */
 export const useCartStore = create(
@@ -49,6 +49,29 @@ export const useCartStore = create(
             [formattedName]: state.tableCarts[formattedName] || []
           }
         }));
+      },
+
+      /**
+       * Renombra una mesa existente: crea la nueva llave newName con los datos de oldName,
+       * elimina oldName, y si activeTable === oldName, actualiza activeTable a newName.
+       */
+      renameTable: (oldName, newName) => {
+        if (!oldName || !newName) return;
+        const formattedNew = newName.trim();
+        if (!formattedNew || formattedNew === oldName) return;
+
+        set((state) => {
+          if (!state.tableCarts[oldName]) return state;
+
+          const updatedTableCarts = { ...state.tableCarts };
+          updatedTableCarts[formattedNew] = updatedTableCarts[oldName];
+          delete updatedTableCarts[oldName];
+
+          return {
+            tableCarts: updatedTableCarts,
+            activeTable: state.activeTable === oldName ? formattedNew : state.activeTable
+          };
+        });
       },
 
       /**
