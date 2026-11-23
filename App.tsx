@@ -123,6 +123,62 @@ const POSTerminalRoute: React.FC = () => {
 };
 
 /**
+ * Ruta Independiente para la Pantalla de Cocina KDS (/cocina)
+ * Muestra las comandas activas en tiempo real sin precios ni menú lateral.
+ */
+const CocinaRoute: React.FC = () => {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const unsubscribe = initAuth(
+      (user) => {
+        setCurrentUser(user);
+        setIsCheckingAuth(false);
+      },
+      () => {
+        setCurrentUser(null);
+        setIsCheckingAuth(false);
+      }
+    );
+
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setCurrentUser(null);
+      navigate('/');
+    } catch (error) {
+      console.error('Error al salir de Cocina KDS:', error);
+    }
+  };
+
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-[#151515] flex flex-col items-center justify-center gap-4">
+        <div className="w-10 h-10 border-3 border-neutral-800 border-t-orange-500 rounded-full animate-spin"></div>
+        <div className="font-bold text-neutral-400 text-xs tracking-widest uppercase">
+          Iniciando Pantalla de Cocina...
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <LoginScreen onLogin={() => {}} />;
+  }
+
+  return <KitchenDisplay currentUser={currentUser} onLogout={handleLogout} />;
+};
+
+/**
  * Enrutador Maestro de la Aplicación
  */
 export default function App() {
@@ -137,8 +193,8 @@ export default function App() {
       {/* 3. Terminal Táctil Independiente para Mozos (100% pantalla completa) */}
       <Route path="/pos-terminal" element={<POSTerminalRoute />} />
 
-      {/* 4. Monitor de Cocina / Barra en Tiempo Real (KDS) */}
-      <Route path="/cocina" element={<KitchenDisplay />} />
+      {/* 4. Pantalla de Cocina KDS en tiempo real */}
+      <Route path="/cocina" element={<CocinaRoute />} />
 
       {/* Redirección por defecto */}
       <Route path="*" element={<Navigate to="/" replace />} />

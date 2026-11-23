@@ -1,21 +1,23 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { buildCartItemKey, normalizeSelectedTags } from '../utils/customizationOptions';
+
+const DEFAULT_TABLES = {
+  'Mesa 1': [],
+  'Mesa 2': [],
+  'Mesa 3': []
+};
 
 /**
  * Store Zustand para el Carrito/Ticket y Estado de GastroPOS con arquitectura Local-First.
- * Estado inicial estricto: literalmente { 'Mesa 1': [], 'Mesa 2': [], 'Mesa 3': [] }.
- * Sin bucles de generación masiva. Creación y renombrado dinámico mediante modal.
+ * Maneja cuentas independientes por mesa con creación y renombrado dinámico.
+ * Estado inicial limpio: 'Mesa 1', 'Mesa 2', 'Mesa 3'.
+ * Persiste automáticamente en localStorage para garantizar disponibilidad offline en salón.
  */
 export const useCartStore = create(
   persist(
     (set, get) => ({
-      // 1. Estado inicial estricto y estático
-      tableCarts: {
-        'Mesa 1': [],
-        'Mesa 2': [],
-        'Mesa 3': []
-      },
+      // 1. Cuentas separadas por mesa con estado inicial limpio
+      tableCarts: { ...DEFAULT_TABLES },
       // 2. Mesa Activa (por defecto 'Mesa 1')
       activeTable: 'Mesa 1',
       products: [],
@@ -35,7 +37,7 @@ export const useCartStore = create(
       },
 
       /**
-       * Agrega una nueva mesa/cuenta de forma inmutable y la selecciona de inmediato
+       * Crea una nueva mesa dinámicamente y la selecciona de inmediato
        */
       addTable: (tableName) => {
         if (!tableName || !tableName.trim()) return;
@@ -50,10 +52,8 @@ export const useCartStore = create(
       },
 
       /**
-       * Renombra una mesa existente de forma inmutable:
-       * - Copia los ítems de oldName a newName
-       * - Elimina la clave oldName
-       * - Si activeTable === oldName, actualiza activeTable a newName
+       * Renombra una mesa existente: crea la nueva llave newName con los datos de oldName,
+       * elimina oldName, y si activeTable === oldName, actualiza activeTable a newName.
        */
       renameTable: (oldName, newName) => {
         if (!oldName || !newName) return;
@@ -64,7 +64,7 @@ export const useCartStore = create(
           if (!state.tableCarts[oldName]) return state;
 
           const updatedTableCarts = { ...state.tableCarts };
-          updatedTableCarts[formattedNew] = updatedTableCarts[oldName] || [];
+          updatedTableCarts[formattedNew] = updatedTableCarts[oldName];
           delete updatedTableCarts[oldName];
 
           return {
@@ -89,49 +89,40 @@ export const useCartStore = create(
       },
 
       /**
-       * Añade un producto al ticket de la mesa activa actual de forma inmutable.
-       * Diferencia variantes personalizadas (chips gourmet/cafetería o nota) por cartKey.
-       * Si la misma variante ya existe en la mesa, incrementa su cantidad.
+       * Añade un producto al ticket de la mesa activa actual.
+       * Si el producto ya existe en la mesa, incrementa su cantidad en 1.
+       * Si no existe, lo agrega con cantidad 1.
        */
       addToCart: (product, targetTable) => {
         set((state) => {
           const table = targetTable || state.activeTable || 'Mesa 1';
           const currentTableCart = state.tableCarts[table] || [];
-          const realProductId = product.productId || product.id;
-          const normalizedTags = normalizeSelectedTags(product.selectedTags || []);
-          const cleanNote = (product.itemNote || '').trim();
-          const itemCartKey =
-            product.cartKey || buildCartItemKey(realProductId, normalizedTags, cleanNote);
-          const qtyToAdd = Math.max(1, Number(product.quantityToAdd) || 1);
-
-          const existingItemIndex = currentTableCart.findIndex(
-            (item) => (item.cartKey || item.id) === itemCartKey
-          );
+          const existingItemIndex = currentTableCart.findIndex((item) => item.id === product.id);
 
           let updatedTableCart;
           if (existingItemIndex > -1) {
             updatedTableCart = [...currentTableCart];
             updatedTableCart[existingItemIndex] = {
               ...updatedTableCart[existingItemIndex],
-              quantity: (updatedTableCart[existingItemIndex].quantity || 1) + qtyToAdd,
+              quantity: (updatedTableCart[existingItemIndex].quantity || 1) + 1,
             };
           } else {
             updatedTableCart = [
               ...currentTableCart,
               {
-                id: realProductId,
-                productId: realProductId,
-                cartKey: itemCartKey,
+                id: product.id,
+                productId: product.productId || product.id,
                 name: product.name,
                 price: Number(product.price) || 0,
                 category: product.category,
                 stock: product.stock,
                 unit: product.unit || 'u',
-                quantity: qtyToAdd,
-                customizationType: product.customizationType || null,
-                selectedTags: normalizedTags,
-                customTags: product.customTags || null,
-                itemNote: cleanNote,
+                hasDailyLimit: Boolean(product.hasDailyLimit),
+                flavorDetail: product.flavorDetail || '',
+                flavorMode: product.flavorMode || null,
+                selectedFlavors: Array.isArray(product.selectedFlavors) ? product.selectedFlavors : [],
+                itemNote: product.itemNote || '',
+                quantity: 1,
               },
             ];
           }
@@ -146,24 +137,22 @@ export const useCartStore = create(
       },
 
       /**
-       * Disminuye la cantidad de un ítem en 1 para la mesa activa (acepta cartKey o productId).
-       * Si la cantidad llega a 0 (o menor o igual a 1), se elimina completamente del ticket.
+       * Disminuye la cantidad de un ítem en 1 para la mesa activa.
+       * Si la cantidad llega a 0 (o menor o igual a 1), se elimina completamente del ticket de la mesa activa.
        */
-      removeFromCart: (itemKeyOrId, targetTable) => {
+      removeFromCart: (productId, targetTable) => {
         set((state) => {
           const table = targetTable || state.activeTable || 'Mesa 1';
           const currentTableCart = state.tableCarts[table] || [];
-          const item = currentTableCart.find((i) => (i.cartKey || i.id) === itemKeyOrId);
+          const item = currentTableCart.find((i) => i.id === productId);
           if (!item) return state;
 
           let updatedTableCart;
           if (item.quantity <= 1) {
-            updatedTableCart = currentTableCart.filter(
-              (i) => (i.cartKey || i.id) !== itemKeyOrId
-            );
+            updatedTableCart = currentTableCart.filter((i) => i.id !== productId);
           } else {
             updatedTableCart = currentTableCart.map((i) =>
-              (i.cartKey || i.id) === itemKeyOrId ? { ...i, quantity: i.quantity - 1 } : i
+              i.id === productId ? { ...i, quantity: i.quantity - 1 } : i
             );
           }
 
@@ -210,17 +199,19 @@ export const useCartStore = create(
       },
     }),
     {
-      name: 'gastropos_tables_v3', // Versión 3 para limpiar el caché de localStorage que tenía 17 mesas
+      name: 'gastropos_cart_localfirst', // Clave en localStorage
       partialize: (state) => ({ 
         tableCarts: state.tableCarts,
         activeTable: state.activeTable
       }),
       merge: (persistedState, currentState) => ({
         ...currentState,
+        ...persistedState,
         activeTable: persistedState?.activeTable || 'Mesa 1',
-        tableCarts: persistedState?.tableCarts && Object.keys(persistedState.tableCarts).length > 0
-          ? persistedState.tableCarts
-          : { 'Mesa 1': [], 'Mesa 2': [], 'Mesa 3': [] }
+        tableCarts: {
+          ...DEFAULT_TABLES,
+          ...(persistedState?.tableCarts || {})
+        }
       })
     }
   )
