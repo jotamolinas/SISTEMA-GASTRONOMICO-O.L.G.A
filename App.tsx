@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { LandingPage } from './components/LandingPage';
 import { AdminLayout } from './components/AdminLayout';
 import { POSDashboard } from './components/POSDashboard';
+import { KitchenDisplay } from './components/KitchenDisplay';
 import { LoginScreen } from './components/LoginScreen';
 import { User } from 'firebase/auth';
 import { initAuth, logout } from './services/auth';
@@ -135,6 +136,9 @@ export default function App() {
 
       {/* 3. Terminal Táctil Independiente para Mozos (100% pantalla completa) */}
       <Route path="/pos-terminal" element={<POSTerminalRoute />} />
+
+      {/* 4. Monitor de Cocina / Barra en Tiempo Real (KDS) */}
+      <Route path="/cocina" element={<KitchenDisplay />} />
 
       {/* Redirección por defecto */}
       <Route path="*" element={<Navigate to="/" replace />} />

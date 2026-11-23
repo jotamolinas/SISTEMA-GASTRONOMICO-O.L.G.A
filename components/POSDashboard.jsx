@@ -34,8 +34,23 @@ import {
   LogOut,
   RefreshCw,
   AlertCircle,
-  Database
+  Database,
+  ChefHat,
+  AlertTriangle,
+  Clock,
+  Check,
+  SlidersHorizontal,
+  Printer
 } from 'lucide-react';
+import {
+  GOURMET_PRESET_GROUPS,
+  CAFE_PRESET_GROUPS,
+  normalizeGourmetOptions,
+  normalizeCafeOptions,
+  normalizeSelectedTags,
+  isAllergyTag,
+  isTimingTag
+} from '../utils/customizationOptions';
 
 export const formatCurrency = (amount) => {
   return new Intl.NumberFormat('es-PY', {
@@ -45,7 +60,9 @@ export const formatCurrency = (amount) => {
 };
 
 // Íconos sobrios de productos
-const ProductIcon = ({ type, category }) => {
+const ProductIcon = ({ type, category, isGourmetConfig, isCafeConfig }) => {
+  if (isCafeConfig) return <Coffee className="w-6 h-6 text-orange-500" />;
+  if (isGourmetConfig) return <ChefHat className="w-6 h-6 text-orange-500" />;
   if (category === 'Bebidas') return <Beer className="w-6 h-6 text-orange-500" />;
   switch (type) {
     case 'burger':
@@ -141,6 +158,109 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
   const [successToast, setSuccessToast] = useState(null);
   const [paymentError, setPaymentError] = useState('');
 
+  // Estados para Modal Rápido de Personalización (Gourmet / Cafetería)
+  const [customizingProduct, setCustomizingProduct] = useState(null);
+  const [selectedCustomTags, setSelectedCustomTags] = useState([]);
+  const [customItemNote, setCustomItemNote] = useState('');
+  const [customQuantity, setCustomQuantity] = useState(1);
+
+  const hasQuickCustomization = (product) => {
+    return Boolean(product?.isGourmetConfig || product?.isCafeConfig);
+  };
+
+  // Al tocar un producto en el catálogo: abre modal táctil si tiene config Gourmet o Cafetería
+  const handleProductTap = (product) => {
+    if ((product.stock || 0) <= 0) return;
+
+    if (hasQuickCustomization(product)) {
+      setCustomizingProduct(product);
+      setSelectedCustomTags([]);
+      setCustomItemNote('');
+      setCustomQuantity(1);
+    } else {
+      addToCart(product);
+    }
+  };
+
+  // Grupos de chips disponibles para el producto actualmente en el modal
+  const activeCustomizationGroups = useMemo(() => {
+    if (!customizingProduct) return [];
+
+    if (customizingProduct.isGourmetConfig) {
+      const opts = normalizeGourmetOptions(customizingProduct.gourmetOptions);
+      const groups = GOURMET_PRESET_GROUPS.map((g) => ({
+        key: g.key,
+        label: g.label,
+        chips: Array.isArray(opts[g.key]) ? opts[g.key] : []
+      })).filter((g) => g.chips.length > 0);
+
+      if (Array.isArray(opts.extras) && opts.extras.length > 0) {
+        groups.push({
+          key: 'extras',
+          label: 'Opciones Extra',
+          chips: opts.extras
+        });
+      }
+      return groups;
+    }
+
+    if (customizingProduct.isCafeConfig) {
+      const opts = normalizeCafeOptions(customizingProduct.cafeOptions);
+      const groups = CAFE_PRESET_GROUPS.map((g) => ({
+        key: g.key,
+        label: g.label,
+        chips: Array.isArray(opts[g.key]) ? opts[g.key] : []
+      })).filter((g) => g.chips.length > 0);
+
+      if (Array.isArray(opts.extras) && opts.extras.length > 0) {
+        groups.push({
+          key: 'extras',
+          label: 'Opciones Extra',
+          chips: opts.extras
+        });
+      }
+      return groups;
+    }
+
+    return [];
+  }, [customizingProduct]);
+
+  const toggleModalTag = (groupKey, chipLabel) => {
+    setSelectedCustomTags((prev) => {
+      const exists = prev.some((t) => t.group === groupKey && t.label === chipLabel);
+      if (exists) {
+        return prev.filter((t) => !(t.group === groupKey && t.label === chipLabel));
+      }
+      return [...prev, { group: groupKey, label: chipLabel }];
+    });
+  };
+
+  const handleConfirmCustomization = (e) => {
+    if (e) e.preventDefault();
+    if (!customizingProduct) return;
+
+    const groupedMap = {};
+    selectedCustomTags.forEach((tag) => {
+      if (!groupedMap[tag.group]) groupedMap[tag.group] = [];
+      groupedMap[tag.group].push(tag.label);
+    });
+
+    addToCart({
+      ...customizingProduct,
+      productId: customizingProduct.id,
+      customizationType: customizingProduct.isGourmetConfig ? 'gourmet' : 'cafe',
+      selectedTags: selectedCustomTags,
+      customTags: Object.keys(groupedMap).length > 0 ? groupedMap : null,
+      itemNote: customItemNote.trim(),
+      quantityToAdd: customQuantity
+    });
+
+    setCustomizingProduct(null);
+    setSelectedCustomTags([]);
+    setCustomItemNote('');
+    setCustomQuantity(1);
+  };
+
   // SUSCRIPCIÓN EN TIEMPO REAL A FIRESTORE (onSnapshot con mapeo estricto { id: doc.id, ...doc.data() })
   useEffect(() => {
     setIsLoadingProducts(true);
@@ -209,12 +329,17 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
         mesa: activeTable || 'Mesa 1',
         total: Number(total) || 0,
         items: cart.map((i) => ({
-          id: i.id,
+          id: i.productId || i.id,
+          productId: i.productId || i.id,
           name: i.name,
           price: Number(i.price) || 0,
           quantity: Number(i.quantity) || 1,
           subtotal: (Number(i.price) || 0) * (Number(i.quantity) || 1),
-          category: i.category || 'General'
+          category: i.category || 'General',
+          customizationType: i.customizationType || null,
+          selectedTags: normalizeSelectedTags(i.selectedTags || []),
+          customTags: i.customTags || null,
+          itemNote: (i.itemNote || '').trim()
         })),
         fecha: new Date().toISOString(),
         timestamp: serverTimestamp(),
@@ -226,21 +351,37 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
 
       batch.set(ventaDocRef, ventaPayload);
 
-      // B) Iterar sobre los productos vendidos y, en el MISMO batch, hacer un descuento de la propiedad 'stock' en 'productos'
+      // B) Agrupar cantidades por producto y descontar stock en un único update por documento
+      const stockDiscounts = {};
       for (const item of cart) {
-        if (item.id) {
-          const prodRef = doc(db, 'productos', item.id);
-          batch.update(prodRef, {
-            stock: increment(-Number(item.quantity || 1)),
-            updatedAt: serverTimestamp()
-          });
+        const pid = item.productId || item.id;
+        if (pid) {
+          stockDiscounts[pid] = (stockDiscounts[pid] || 0) + Number(item.quantity || 1);
         }
+      }
+      for (const [pid, qty] of Object.entries(stockDiscounts)) {
+        const prodRef = doc(db, 'productos', pid);
+        batch.update(prodRef, {
+          stock: increment(-qty),
+          updatedAt: serverTimestamp()
+        });
       }
 
       // C) Ejecutar batch.commit()
       await batch.commit();
 
-      console.log('--- COMANDA COBRADA EN BATCH FIRESTORE ---', ventaPayload);
+      const paidReceiptSnapshot = {
+        tipo: 'COMPROBANTE DE COBRO',
+        mesa: activeTable || 'Mesa 1',
+        items: cart.map((i) => ({ ...i })),
+        total: Number(total) || 0,
+        taxAmount: Number(taxAmount) || 0,
+        totalItemsCount: Number(totalItemsCount) || 0,
+        nota: (ticketNote || '').trim(),
+        cajero: currentUser?.email?.split('@')[0] || 'Mozo Salón',
+        fecha: formatPrintDateTime()
+      };
+      setLastPaidReceipt(paidReceiptSnapshot);
 
       // D) Notificación solicitada: "Comanda registrada con éxito"
       setSuccessToast('Comanda registrada con éxito');
@@ -249,9 +390,14 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
       // E) Limpiar ticket de la mesa activa
       clearCart(activeTable);
       setTicketNote('');
+
+      // F) Si el cajero activó "Imprimir al cobrar", dispara la impresión térmica 80mm con el comprobante recién cobrado
+      if (printOnCheckout) {
+        triggerThermalPrint(paidReceiptSnapshot);
+      }
     } catch (err) {
-      console.error('Error al procesar batch write en Firestore:', err);
-      setPaymentError('Error al conectar con Firestore. Intenta de nuevo.');
+      console.error('Error al procesar cobro:', err);
+      setPaymentError('Error de conexión al procesar el cobro. Intenta de nuevo.');
       setTimeout(() => setPaymentError(''), 4000);
     } finally {
       setIsProcessingPayment(false);
@@ -270,13 +416,18 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
       const comandaPayload = {
         mesa: activeTable || 'Mesa 1',
         items: cart.map((i) => ({
-          id: i.id,
+          id: i.productId || i.id,
+          productId: i.productId || i.id,
           name: i.name,
           price: Number(i.price) || 0,
           quantity: Number(i.quantity) || 1,
           subtotal: (Number(i.price) || 0) * (Number(i.quantity) || 1),
           category: i.category || 'General',
-          unit: i.unit || 'unidades'
+          unit: i.unit || 'unidades',
+          customizationType: i.customizationType || null,
+          selectedTags: normalizeSelectedTags(i.selectedTags || []),
+          customTags: i.customTags || null,
+          itemNote: (i.itemNote || '').trim()
         })),
         estado: 'en_cocina',
         fecha: new Date().toISOString(),
@@ -288,8 +439,6 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
 
       await addDoc(comandasCol, comandaPayload);
 
-      console.log('--- COMANDA ENVIADA A comandas_activas ---', comandaPayload);
-
       // Alerta exitosa requerida: "Enviado a cocina"
       setSuccessToast('Enviado a cocina');
       setTimeout(() => setSuccessToast(null), 3500);
@@ -298,13 +447,83 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
       clearCart(activeTable);
       setTicketNote('');
     } catch (err) {
-      console.error('Error al guardar comanda en Firestore:', err);
+      console.error('Error al enviar comanda:', err);
       setPaymentError('Error al enviar la comanda a cocina. Verifica la conexión.');
       setTimeout(() => setPaymentError(''), 4000);
     } finally {
       setIsSendingComanda(false);
     }
   };
+
+  // Impresión térmica opcional 80mm mediante CSS @media print (alto contraste B/N)
+  const [printOnCheckout, setPrintOnCheckout] = useState(false);
+  const [lastPaidReceipt, setLastPaidReceipt] = useState(null);
+  const [activePrintReceipt, setActivePrintReceipt] = useState(null);
+
+  const formatPrintDateTime = () =>
+    new Intl.DateTimeFormat('es-PY', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(new Date());
+
+  const triggerThermalPrint = (receiptSnapshot) => {
+    if (!receiptSnapshot || !Array.isArray(receiptSnapshot.items) || receiptSnapshot.items.length === 0) {
+      return;
+    }
+
+    setActivePrintReceipt(receiptSnapshot);
+    document.body.classList.add('printing-thermal-80mm');
+
+    const cleanup = () => {
+      document.body.classList.remove('printing-thermal-80mm');
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+
+    setTimeout(() => {
+      window.print();
+      setTimeout(cleanup, 1000);
+    }, 60);
+  };
+
+  const handlePrintThermalTicket = () => {
+    if (cart.length > 0) {
+      triggerThermalPrint({
+        tipo: 'PRE-CUENTA / TICKET DE MESA',
+        mesa: activeTable || 'Mesa 1',
+        items: cart.map((i) => ({ ...i })),
+        total: Number(total) || 0,
+        taxAmount: Number(taxAmount) || 0,
+        totalItemsCount: Number(totalItemsCount) || 0,
+        nota: (ticketNote || '').trim(),
+        cajero: currentUser?.email?.split('@')[0] || 'Mozo Salón',
+        fecha: formatPrintDateTime()
+      });
+    } else if (lastPaidReceipt) {
+      triggerThermalPrint(lastPaidReceipt);
+    }
+  };
+
+  // Datos efectivos para la plantilla de impresión térmica 80mm
+  const receiptToPrint = useMemo(() => {
+    if (activePrintReceipt && activePrintReceipt.items?.length > 0) {
+      return activePrintReceipt;
+    }
+    return {
+      tipo: 'PRE-CUENTA / TICKET DE MESA',
+      mesa: activeTable || 'Mesa 1',
+      items: cart,
+      total: Number(total) || 0,
+      taxAmount: Number(taxAmount) || 0,
+      totalItemsCount: Number(totalItemsCount) || 0,
+      nota: (ticketNote || '').trim(),
+      cajero: currentUser?.email?.split('@')[0] || 'Mozo Salón',
+      fecha: formatPrintDateTime()
+    };
+  }, [activePrintReceipt, activeTable, cart, total, taxAmount, totalItemsCount, ticketNote, currentUser]);
 
   // Filtrado de productos en vivo por categoría y buscador
   const filteredProducts = useMemo(() => {
@@ -321,7 +540,8 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
   }, [products, selectedCategory, searchTerm]);
 
   return (
-    <div className="min-h-screen bg-[#151515] text-neutral-100 flex flex-col font-sans select-none">
+    <>
+    <div className="min-h-screen bg-[#151515] text-neutral-100 flex flex-col font-sans select-none print:hidden">
       {/* 1. BARRA SUPERIOR: NAVEGACIÓN Y MESAS */}
       <header className="h-14 bg-[#1a1a1a] border-b border-neutral-800 px-4 sm:px-6 flex items-center justify-between shrink-0 z-30">
         <div className="flex items-center gap-4">
@@ -350,7 +570,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
             </span>
             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#151515] text-emerald-400 border border-neutral-800 hidden md:flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              Firestore Sync
+              En Vivo
             </span>
           </div>
         </div>
@@ -396,8 +616,18 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
           </div>
         </div>
 
-        {/* Salir o Usuario */}
-        <div className="flex items-center gap-3">
+        {/* Acceso a Cocina + Salir / Usuario */}
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => navigate('/cocina')}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#222222] hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800 text-xs font-semibold transition-colors cursor-pointer"
+            title="Abrir pantalla de cocina (/cocina)"
+          >
+            <ChefHat className="w-3.5 h-3.5 text-orange-500" />
+            <span className="hidden sm:inline">Cocina</span>
+          </button>
+
           <span className="text-xs text-neutral-400 hidden lg:inline">
             {currentUser?.email?.split('@')[0] || 'Mozo'}
           </span>
@@ -515,31 +745,52 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
             <div className="p-4 sm:p-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
                 {filteredProducts.map((product) => {
-                  const inCart = cart.find((i) => i.id === product.id);
+                  const productCartQty = cart
+                    .filter((i) => (i.productId || i.id) === product.id)
+                    .reduce((sum, i) => sum + (i.quantity || 1), 0);
                   const isOutOfStock = (product.stock || 0) <= 0;
+                  const isCustomizable = hasQuickCustomization(product);
 
                   return (
                     <div
                       key={product.id}
+                      onClick={() => {
+                        if (!isOutOfStock) handleProductTap(product);
+                      }}
                       className={`bg-[#222222] rounded-xl p-4 flex items-center justify-between gap-3 transition-colors border ${
-                        inCart
+                        productCartQty > 0
                           ? 'border-orange-500/50 bg-[#262626]'
                           : isOutOfStock
                           ? 'border-neutral-800/50 opacity-75'
-                          : 'border-neutral-800/80 hover:border-neutral-700'
+                          : 'border-neutral-800/80 hover:border-neutral-700 cursor-pointer'
                       }`}
                     >
                       {/* Ícono a la izquierda */}
                       <div className="w-12 h-12 rounded-lg bg-[#151515] border border-neutral-800 flex items-center justify-center shrink-0">
-                        <ProductIcon type={product.icon} category={product.category} />
+                        <ProductIcon
+                          type={product.icon}
+                          category={product.category}
+                          isGourmetConfig={product.isGourmetConfig}
+                          isCafeConfig={product.isCafeConfig}
+                        />
                       </div>
 
                       {/* Título, precio y stock sincronizado en Firestore */}
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-[10px] font-medium text-neutral-400 uppercase">
                             {product.category}
                           </span>
+                          {product.isGourmetConfig && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-orange-600/15 text-orange-400 border border-orange-500/30">
+                              Gourmet
+                            </span>
+                          )}
+                          {product.isCafeConfig && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-orange-600/15 text-orange-400 border border-orange-500/30">
+                              Cafetería
+                            </span>
+                          )}
                           <span
                             className={`text-[9px] font-mono px-1.5 py-0.5 rounded font-semibold ${
                               isOutOfStock
@@ -558,19 +809,31 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                         </div>
                       </div>
 
-                      {/* BOTÓN NARANJA DE "AÑADIR" CONECTADO A ZUSTAND addToCart */}
+                      {/* BOTÓN NARANJA DE "AÑADIR" / PERSONALIZAR */}
                       <button
                         type="button"
-                        onClick={() => addToCart(product)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleProductTap(product);
+                        }}
                         disabled={isOutOfStock}
-                        className={`h-11 px-4 rounded-lg font-semibold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors shrink-0 cursor-pointer active:scale-95 ${
+                        className={`h-11 px-3.5 rounded-lg font-semibold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors shrink-0 cursor-pointer active:scale-95 ${
                           isOutOfStock
                             ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
                             : 'bg-orange-600 hover:bg-orange-500 text-white shadow-xs'
                         }`}
+                        title={
+                          isCustomizable
+                            ? 'Toca para personalizar con opciones rápidas'
+                            : 'Añadir al ticket'
+                        }
                       >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>{inCart ? `(${inCart.quantity})` : 'Añadir'}</span>
+                        {isCustomizable ? (
+                          <SlidersHorizontal className="w-3.5 h-3.5" />
+                        ) : (
+                          <Plus className="w-3.5 h-3.5" />
+                        )}
+                        <span>{productCartQty > 0 ? `(${productCartQty})` : 'Añadir'}</span>
                       </button>
                     </div>
                   );
@@ -712,63 +975,106 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                 </p>
               </div>
             ) : (
-              cart.map((item) => (
-                <div key={item.id} className="pt-3 first:pt-0 flex flex-col gap-2">
-                  {/* Nombre, precio unitario y subtotal */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <h4 className="text-xs font-semibold text-white truncate">
-                        {item.name}
-                      </h4>
-                      <span className="text-[11px] text-neutral-400 font-mono">
-                        {formatCurrency(item.price)}
-                      </span>
-                    </div>
+              cart.map((item) => {
+                const itemKey = item.cartKey || item.id;
+                const tags = normalizeSelectedTags(item.selectedTags || []);
+                const sortedTags = [...tags].sort((a, b) => {
+                  const score = (t) => (isAllergyTag(t) ? 0 : isTimingTag(t) ? 1 : 2);
+                  return score(a) - score(b);
+                });
 
-                    {/* Subtotal del ítem */}
-                    <span className="text-xs font-bold text-white font-mono shrink-0">
-                      {formatCurrency(item.price * item.quantity)}
-                    </span>
-                  </div>
+                return (
+                  <div key={itemKey} className="pt-3 first:pt-0 flex flex-col gap-2">
+                    {/* Nombre, precio unitario y subtotal */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-xs font-semibold text-white truncate">
+                          {item.name}
+                        </h4>
+                        <span className="text-[11px] text-neutral-400 font-mono">
+                          {formatCurrency(item.price)}
+                        </span>
 
-                  {/* Cantidad y botones pequeños [+] y [-] */}
-                  <div className="flex items-center justify-between bg-[#151515] px-2.5 py-1 rounded-lg border border-neutral-800">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-neutral-400">Subtotal:</span>
-                      <span className="text-[11px] font-mono text-orange-400 font-semibold">
+                        {/* Etiquetas de personalización (Alergias, Tiempos, Cocción / Cafetería) */}
+                        {sortedTags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {sortedTags.map((tag, idx) => {
+                              const allergy = isAllergyTag(tag);
+                              const timing = isTimingTag(tag);
+
+                              return (
+                                <span
+                                  key={`${tag.group}-${tag.label}-${idx}`}
+                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] leading-tight border ${
+                                    allergy
+                                      ? 'bg-red-950/90 border-red-600/80 text-red-200 font-bold'
+                                      : timing
+                                      ? 'bg-amber-950/80 border-amber-500/70 text-amber-200 font-semibold'
+                                      : 'bg-orange-600/15 border-orange-500/40 text-orange-300 font-medium'
+                                  }`}
+                                >
+                                  {allergy && <AlertTriangle className="w-2.5 h-2.5 text-red-400 shrink-0" />}
+                                  {!allergy && timing && <Clock className="w-2.5 h-2.5 text-amber-400 shrink-0" />}
+                                  <span>{tag.label}</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Nota corta individual del ítem */}
+                        {item.itemNote && (
+                          <p className="text-[10px] text-neutral-300 italic mt-1 bg-[#151515] border-l-2 border-orange-500 px-2 py-0.5 rounded-r">
+                            Nota: {item.itemNote}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Subtotal del ítem */}
+                      <span className="text-xs font-bold text-white font-mono shrink-0">
                         {formatCurrency(item.price * item.quantity)}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
-                      {/* Botón pequeño [-] */}
-                      <button
-                        type="button"
-                        onClick={() => removeFromCart(item.id)}
-                        className="w-6 h-6 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 flex items-center justify-center text-xs transition-colors cursor-pointer"
-                        title="Disminuir cantidad"
-                      >
-                        <Minus className="w-3 h-3" />
-                      </button>
+                    {/* Cantidad y botones pequeños [+] y [-] */}
+                    <div className="flex items-center justify-between bg-[#151515] px-2.5 py-1 rounded-lg border border-neutral-800">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-neutral-400">Subtotal:</span>
+                        <span className="text-[11px] font-mono text-orange-400 font-semibold">
+                          {formatCurrency(item.price * item.quantity)}
+                        </span>
+                      </div>
 
-                      {/* Cantidad actual */}
-                      <span className="w-6 text-center font-bold text-xs text-white font-mono">
-                        {item.quantity}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {/* Botón pequeño [-] */}
+                        <button
+                          type="button"
+                          onClick={() => removeFromCart(itemKey)}
+                          className="w-6 h-6 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 flex items-center justify-center text-xs transition-colors cursor-pointer"
+                          title="Disminuir cantidad"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
 
-                      {/* Botón pequeño [+] */}
-                      <button
-                        type="button"
-                        onClick={() => addToCart(item)}
-                        className="w-6 h-6 rounded bg-orange-600 hover:bg-orange-500 text-white flex items-center justify-center text-xs transition-colors cursor-pointer"
-                        title="Aumentar cantidad"
-                      >
-                        <Plus className="w-3 h-3" />
-                      </button>
+                        {/* Cantidad actual */}
+                        <span className="w-6 text-center font-bold text-xs text-white font-mono">
+                          {item.quantity}
+                        </span>
+
+                        {/* Botón pequeño [+] */}
+                        <button
+                          type="button"
+                          onClick={() => addToCart({ ...item, quantityToAdd: 1 })}
+                          className="w-6 h-6 rounded bg-orange-600 hover:bg-orange-500 text-white flex items-center justify-center text-xs transition-colors cursor-pointer"
+                          title="Aumentar cantidad"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 
@@ -812,8 +1118,41 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
               </div>
             )}
 
-            {/* BOTONES DE ACCIÓN: COMANDA Y COBRAR EN BATCH */}
-            <div className="grid grid-cols-2 gap-2 pt-1">
+            {/* OPCIONES DE IMPRESIÓN TÉRMICA 80MM */}
+            <div className="space-y-2">
+              <label className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-[#222222] border border-neutral-800 cursor-pointer select-none">
+                <span className="text-[11px] font-medium text-neutral-300 flex items-center gap-1.5">
+                  <Printer className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                  <span>Imprimir ticket (80mm) al cobrar</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={printOnCheckout}
+                  onChange={(e) => setPrintOnCheckout(e.target.checked)}
+                  className="w-4 h-4 rounded border-neutral-700 bg-[#151515] accent-orange-600 cursor-pointer"
+                />
+              </label>
+
+              <button
+                type="button"
+                disabled={(cart.length === 0 && !lastPaidReceipt) || isProcessingPayment || isSendingComanda}
+                onClick={handlePrintThermalTicket}
+                className="w-full py-2 px-3 rounded-lg bg-[#222222] hover:bg-neutral-800 active:scale-95 disabled:opacity-40 disabled:pointer-events-none text-neutral-200 hover:text-white font-semibold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer border border-neutral-800"
+                title="Imprimir ticket o pre-cuenta en formato térmico 80mm"
+              >
+                <Printer className="w-3.5 h-3.5 text-orange-500" />
+                <span>
+                  {cart.length > 0
+                    ? 'Imprimir Ticket / Pre-cuenta'
+                    : lastPaidReceipt
+                    ? `Reimprimir Último Ticket (${lastPaidReceipt.mesa})`
+                    : 'Imprimir Ticket / Pre-cuenta'}
+                </span>
+              </button>
+            </div>
+
+            {/* BOTONES DE ACCIÓN: COMANDA Y COBRAR */}
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 disabled={cart.length === 0 || isProcessingPayment || isSendingComanda}
@@ -833,7 +1172,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                 )}
               </button>
 
-              {/* BOTÓN PRINCIPAL: COBRAR CON BATCH WRITE A FIRESTORE */}
+              {/* BOTÓN PRINCIPAL: COBRAR */}
               <button
                 type="button"
                 disabled={cart.length === 0 || isProcessingPayment || isSendingComanda}
@@ -927,6 +1266,179 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
         </div>
       )}
 
+      {/* MODAL TÁCTIL RÁPIDO DE PERSONALIZACIÓN (GOURMET / CAFETERÍA) */}
+      {customizingProduct && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setCustomizingProduct(null)}
+        >
+          <div
+            className="bg-[#222222] border border-neutral-800 rounded-2xl w-full max-w-lg shadow-2xl relative text-neutral-100 max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header del Modal Táctil */}
+            <div className="p-4 sm:p-5 bg-[#151515] border-b border-neutral-800 flex items-start justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-11 h-11 rounded-xl bg-[#222222] border border-neutral-800 flex items-center justify-center shrink-0">
+                  {customizingProduct.isGourmetConfig ? (
+                    <ChefHat className="w-5 h-5 text-orange-500" />
+                  ) : (
+                    <Coffee className="w-5 h-5 text-orange-500" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-orange-600/15 text-orange-400 border border-orange-500/30">
+                      {customizingProduct.isGourmetConfig ? 'Cocina Gourmet' : 'Cafetería / Bar'}
+                    </span>
+                    <span className="text-xs font-mono font-bold text-orange-500">
+                      {formatCurrency(customizingProduct.price)}
+                    </span>
+                  </div>
+                  <h3 className="font-bold text-base text-white truncate mt-0.5">
+                    {customizingProduct.name}
+                  </h3>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCustomizingProduct(null)}
+                className="p-1.5 text-neutral-400 hover:text-white hover:bg-[#222222] rounded-lg transition-colors cursor-pointer shrink-0"
+                title="Cerrar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Cuerpo scrollable con grupos de chips táctiles */}
+            <form onSubmit={handleConfirmCustomization} className="flex flex-col flex-1 overflow-hidden">
+              <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
+                {activeCustomizationGroups.map((group) => (
+                  <div key={group.key} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
+                        {group.key === 'alergias' && (
+                          <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                        )}
+                        {(group.key === 'tiempo' || group.key === 'entrega') && (
+                          <Clock className="w-3.5 h-3.5 text-amber-400" />
+                        )}
+                        <span>{group.label}</span>
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {group.chips.map((chip) => {
+                        const isSelected = selectedCustomTags.some(
+                          (t) => t.group === group.key && t.label === chip
+                        );
+                        const activeClass =
+                          group.key === 'alergias'
+                            ? 'bg-red-950/90 border-red-500 text-red-100 shadow-xs'
+                            : group.key === 'tiempo' || group.key === 'entrega'
+                            ? 'bg-amber-950/90 border-amber-500 text-amber-100 shadow-xs'
+                            : 'bg-orange-600 border-orange-500 text-white shadow-xs';
+
+                        return (
+                          <button
+                            key={chip}
+                            type="button"
+                            onClick={() => toggleModalTag(group.key, chip)}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+                              isSelected
+                                ? activeClass
+                                : 'bg-[#151515] border-neutral-800 text-neutral-300 hover:border-neutral-600 hover:text-white'
+                            }`}
+                          >
+                            {isSelected && group.key === 'alergias' && (
+                              <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                            )}
+                            {isSelected && (group.key === 'tiempo' || group.key === 'entrega') && (
+                              <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            )}
+                            {isSelected &&
+                              group.key !== 'alergias' &&
+                              group.key !== 'tiempo' &&
+                              group.key !== 'entrega' && (
+                                <Check className="w-3.5 h-3.5 text-white shrink-0" />
+                              )}
+                            <span>{chip}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Nota corta opcional */}
+                <div className="pt-2 border-t border-neutral-800/80 space-y-1.5">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 block">
+                    Nota corta (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={customItemNote}
+                    onChange={(e) => setCustomItemNote(e.target.value)}
+                    placeholder={
+                      customizingProduct.isGourmetConfig
+                        ? 'Ej: Salsa aparte, sin cebolla, plato caliente...'
+                        : 'Ej: Poco hielo, bien espumoso, 1 sobre de edulcorante...'
+                    }
+                    className="w-full px-3.5 py-2.5 bg-[#151515] border border-neutral-800 rounded-xl text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 transition-colors"
+                  />
+                </div>
+              </div>
+
+              {/* Pie fijo con cantidad y botón de confirmar */}
+              <div className="p-4 bg-[#151515] border-t border-neutral-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shrink-0">
+                {/* Selector táctil de cantidad */}
+                <div className="flex items-center justify-between sm:justify-start gap-2 bg-[#222222] border border-neutral-800 rounded-xl px-2.5 py-1.5">
+                  <span className="text-[11px] text-neutral-400 font-semibold mr-1">Cant.:</span>
+                  <button
+                    type="button"
+                    onClick={() => setCustomQuantity((q) => Math.max(1, q - 1))}
+                    className="w-8 h-8 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-white flex items-center justify-center cursor-pointer active:scale-95"
+                  >
+                    <Minus className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="w-7 text-center font-mono font-bold text-sm text-white">
+                    {customQuantity}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCustomQuantity((q) => q + 1)}
+                    className="w-8 h-8 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-orange-400 flex items-center justify-center cursor-pointer active:scale-95"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Botones Cancelar y Agregar */}
+                <div className="flex items-center gap-2 flex-1 sm:flex-initial justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setCustomizingProduct(null)}
+                    className="px-4 py-2.5 rounded-xl text-xs font-semibold text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 transition-colors cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 sm:flex-initial px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider text-white bg-orange-600 hover:bg-orange-500 transition-colors cursor-pointer shadow-sm active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>
+                      Agregar ({formatCurrency((Number(customizingProduct.price) || 0) * customQuantity)})
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* TOAST DE COMANDA REGISTRADA CON ÉXITO / ENVIADO A COCINA */}
       {successToast && (
         <div className="fixed bottom-5 right-5 z-50 animate-in fade-in">
@@ -936,14 +1448,167 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
               <p className="font-bold text-white text-sm">{successToast}</p>
               <p className="text-[11px] text-neutral-400">
                 {successToast === 'Enviado a cocina'
-                  ? `Pedido registrado en comandas_activas para ${activeTable}`
-                  : 'Venta guardada y stock descontado en Firestore'}
+                  ? `Comanda enviada a cocina para ${activeTable}`
+                  : 'Venta registrada y stock actualizado'}
               </p>
             </div>
           </div>
         </div>
       )}
     </div>
+
+    {/* ================================================================= */}
+    {/* PLANTILLA DE IMPRESIÓN TÉRMICA 80MM (ALTO CONTRASTE BLANCO/NEGRO) */}
+    {/* ================================================================= */}
+    <div
+      id="thermal-receipt-80mm"
+      className="hidden print:block bg-white text-black font-mono"
+    >
+      {/* Cabecera Comercial */}
+      <div className="text-center pb-2 border-b border-dashed border-black">
+        <div className="text-base font-extrabold tracking-wide uppercase">
+          GASTROPOS — RESTAURANT & BAR
+        </div>
+        <div className="text-[11px] font-bold uppercase tracking-wider mt-0.5">
+          {receiptToPrint.tipo}
+        </div>
+      </div>
+
+      {/* Datos de Mesa y Emisión */}
+      <div className="py-2 border-b border-dashed border-black text-[11px] space-y-0.5">
+        <div className="flex justify-between">
+          <span className="font-bold">MESA / CUENTA:</span>
+          <span className="font-bold uppercase">{receiptToPrint.mesa}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>FECHA Y HORA:</span>
+          <span>{receiptToPrint.fecha}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>ATENDIÓ:</span>
+          <span>{receiptToPrint.cajero}</span>
+        </div>
+      </div>
+
+      {/* Encabezado de Columnas */}
+      <div className="py-1.5 border-b border-dashed border-black flex justify-between text-[10px] font-bold uppercase">
+        <span>CANT. DESCRIPCIÓN</span>
+        <span>IMPORTE</span>
+      </div>
+
+      {/* Detalle de Ítems + Personalizaciones */}
+      <div className="py-2 border-b border-dashed border-black space-y-2">
+        {(receiptToPrint.items || []).map((item, idx) => {
+          const itemKey = item.cartKey || item.id || idx;
+          const tags = normalizeSelectedTags(item.selectedTags || []);
+          const allergyTags = tags.filter((t) => isAllergyTag(t));
+          const timingTags = tags.filter((t) => !isAllergyTag(t) && isTimingTag(t));
+          const otherTags = tags.filter((t) => !isAllergyTag(t) && !isTimingTag(t));
+          const flavors = Array.isArray(item.flavors)
+            ? item.flavors
+            : Array.isArray(item.sabores)
+            ? item.sabores
+            : [];
+          const itemSize = item.size || item.tamano || '';
+          const itemExtras = Array.isArray(item.extras) ? item.extras : [];
+          const removedIngredients = Array.isArray(item.removedIngredients)
+            ? item.removedIngredients
+            : Array.isArray(item.sinIngredientes)
+            ? item.sinIngredientes
+            : [];
+          const noteText = (item.itemNote || item.nota || item.notes || '').trim();
+
+          return (
+            <div key={`print-${itemKey}-${idx}`} className="text-[11px] leading-snug">
+              <div className="flex justify-between gap-2 font-bold">
+                <span>
+                  {item.quantity}x {item.name}
+                  {itemSize ? ` (${itemSize})` : ''}
+                </span>
+                <span className="shrink-0">
+                  {formatCurrency((Number(item.price) || 0) * (Number(item.quantity) || 1))}
+                </span>
+              </div>
+
+              {(item.quantity || 1) > 1 && (
+                <div className="text-[10px] pl-3">
+                  ({item.quantity} u. x {formatCurrency(item.price)})
+                </div>
+              )}
+
+              {flavors.length > 0 && (
+                <div className="text-[10px] font-bold pl-3">
+                  {flavors.length === 2
+                    ? `1/2 ${flavors[0]} + 1/2 ${flavors[1]}`
+                    : `Sabor: ${flavors.join(', ')}`}
+                </div>
+              )}
+
+              {allergyTags.length > 0 && (
+                <div className="text-[10px] font-extrabold uppercase pl-3 mt-0.5 border-l-2 border-black">
+                  !! RESTRICCIÓN: {allergyTags.map((t) => t.label).join(', ')} !!
+                </div>
+              )}
+
+              {removedIngredients.length > 0 && (
+                <div className="text-[10px] font-bold uppercase pl-3">
+                  SIN: {removedIngredients.join(', ')}
+                </div>
+              )}
+
+              {timingTags.length > 0 && (
+                <div className="text-[10px] font-bold uppercase pl-3">
+                  [{timingTags.map((t) => t.label).join(' / ')}]
+                </div>
+              )}
+
+              {(otherTags.length > 0 || itemExtras.length > 0) && (
+                <div className="text-[10px] pl-3">
+                  • {[...otherTags.map((t) => t.label), ...itemExtras.map((e) => `+${e}`)].join(', ')}
+                </div>
+              )}
+
+              {noteText && (
+                <div className="text-[10px] pl-3 italic">
+                  Nota: {noteText}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Nota General de Mesa */}
+      {receiptToPrint.nota && (
+        <div className="py-1.5 border-b border-dashed border-black text-[10px]">
+          <span className="font-bold uppercase">NOTA GENERAL: </span>
+          <span>{receiptToPrint.nota}</span>
+        </div>
+      )}
+
+      {/* Totales */}
+      <div className="py-2 border-b border-dashed border-black space-y-1 text-[11px]">
+        <div className="flex justify-between">
+          <span>SUBTOTAL ({receiptToPrint.totalItemsCount} ÍTEMS):</span>
+          <span>{formatCurrency(receiptToPrint.total)}</span>
+        </div>
+        <div className="flex justify-between text-[10px]">
+          <span>IVA (10% INCLUIDO):</span>
+          <span>{formatCurrency(receiptToPrint.taxAmount)}</span>
+        </div>
+        <div className="flex justify-between text-sm font-extrabold pt-1 border-t border-black">
+          <span>TOTAL A PAGAR:</span>
+          <span>{formatCurrency(receiptToPrint.total)}</span>
+        </div>
+      </div>
+
+      {/* Pie del Ticket */}
+      <div className="pt-2.5 text-center text-[10px] space-y-0.5">
+        <div className="font-bold uppercase">Documento no válido como factura legal</div>
+        <div>¡Gracias por su preferencia!</div>
+      </div>
+    </div>
+    </>
   );
 };
 

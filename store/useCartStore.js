@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { buildCartItemKey, normalizeSelectedTags } from '../utils/customizationOptions';
 
 /**
  * Store Zustand para el Carrito/Ticket y Estado de GastroPOS con arquitectura Local-First.
@@ -89,33 +90,48 @@ export const useCartStore = create(
 
       /**
        * Añade un producto al ticket de la mesa activa actual de forma inmutable.
-       * Si el producto ya existe en la mesa, incrementa su cantidad en 1.
-       * Si no existe, lo agrega con cantidad 1.
+       * Diferencia variantes personalizadas (chips gourmet/cafetería o nota) por cartKey.
+       * Si la misma variante ya existe en la mesa, incrementa su cantidad.
        */
       addToCart: (product, targetTable) => {
         set((state) => {
           const table = targetTable || state.activeTable || 'Mesa 1';
           const currentTableCart = state.tableCarts[table] || [];
-          const existingItemIndex = currentTableCart.findIndex((item) => item.id === product.id);
+          const realProductId = product.productId || product.id;
+          const normalizedTags = normalizeSelectedTags(product.selectedTags || []);
+          const cleanNote = (product.itemNote || '').trim();
+          const itemCartKey =
+            product.cartKey || buildCartItemKey(realProductId, normalizedTags, cleanNote);
+          const qtyToAdd = Math.max(1, Number(product.quantityToAdd) || 1);
+
+          const existingItemIndex = currentTableCart.findIndex(
+            (item) => (item.cartKey || item.id) === itemCartKey
+          );
 
           let updatedTableCart;
           if (existingItemIndex > -1) {
             updatedTableCart = [...currentTableCart];
             updatedTableCart[existingItemIndex] = {
               ...updatedTableCart[existingItemIndex],
-              quantity: (updatedTableCart[existingItemIndex].quantity || 1) + 1,
+              quantity: (updatedTableCart[existingItemIndex].quantity || 1) + qtyToAdd,
             };
           } else {
             updatedTableCart = [
               ...currentTableCart,
               {
-                id: product.id,
+                id: realProductId,
+                productId: realProductId,
+                cartKey: itemCartKey,
                 name: product.name,
                 price: Number(product.price) || 0,
                 category: product.category,
                 stock: product.stock,
                 unit: product.unit || 'u',
-                quantity: 1,
+                quantity: qtyToAdd,
+                customizationType: product.customizationType || null,
+                selectedTags: normalizedTags,
+                customTags: product.customTags || null,
+                itemNote: cleanNote,
               },
             ];
           }
@@ -130,22 +146,24 @@ export const useCartStore = create(
       },
 
       /**
-       * Disminuye la cantidad de un ítem en 1 para la mesa activa.
+       * Disminuye la cantidad de un ítem en 1 para la mesa activa (acepta cartKey o productId).
        * Si la cantidad llega a 0 (o menor o igual a 1), se elimina completamente del ticket.
        */
-      removeFromCart: (productId, targetTable) => {
+      removeFromCart: (itemKeyOrId, targetTable) => {
         set((state) => {
           const table = targetTable || state.activeTable || 'Mesa 1';
           const currentTableCart = state.tableCarts[table] || [];
-          const item = currentTableCart.find((i) => i.id === productId);
+          const item = currentTableCart.find((i) => (i.cartKey || i.id) === itemKeyOrId);
           if (!item) return state;
 
           let updatedTableCart;
           if (item.quantity <= 1) {
-            updatedTableCart = currentTableCart.filter((i) => i.id !== productId);
+            updatedTableCart = currentTableCart.filter(
+              (i) => (i.cartKey || i.id) !== itemKeyOrId
+            );
           } else {
             updatedTableCart = currentTableCart.map((i) =>
-              i.id === productId ? { ...i, quantity: i.quantity - 1 } : i
+              (i.cartKey || i.id) === itemKeyOrId ? { ...i, quantity: i.quantity - 1 } : i
             );
           }
 

@@ -64,6 +64,20 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
+export interface GourmetOptionsConfig {
+  coccion?: string[];
+  alergias?: string[];
+  tiempo?: string[];
+  extras?: string[];
+}
+
+export interface CafeOptionsConfig {
+  leche?: string[];
+  temperatura?: string[];
+  entrega?: string[];
+  extras?: string[];
+}
+
 export interface ProductItem {
   id: string;
   name: string;
@@ -77,6 +91,10 @@ export interface ProductItem {
   badge?: string;
   minAlert?: number;
   type?: string;
+  isGourmetConfig?: boolean;
+  gourmetOptions?: GourmetOptionsConfig | null;
+  isCafeConfig?: boolean;
+  cafeOptions?: CafeOptionsConfig | null;
   createdAt?: any;
   updatedAt?: any;
 }
@@ -248,6 +266,10 @@ export function subscribeToProducts(
           badge: data.badge || '',
           minAlert: Number(data.minAlert) || 12,
           type: data.type || (data.category === 'Bebidas' ? 'beer' : 'meat'),
+          isGourmetConfig: Boolean(data.isGourmetConfig),
+          gourmetOptions: data.gourmetOptions || null,
+          isCafeConfig: Boolean(data.isCafeConfig),
+          cafeOptions: data.cafeOptions || null,
           createdAt: data.createdAt,
           updatedAt: data.updatedAt
         });
@@ -294,6 +316,10 @@ export async function getProductsOnce(): Promise<ProductItem[]> {
         badge: data.badge || '',
         minAlert: Number(data.minAlert) || 12,
         type: data.type || (data.category === 'Bebidas' ? 'beer' : 'meat'),
+        isGourmetConfig: Boolean(data.isGourmetConfig),
+        gourmetOptions: data.gourmetOptions || null,
+        isCafeConfig: Boolean(data.isCafeConfig),
+        cafeOptions: data.cafeOptions || null,
         createdAt: data.createdAt,
         updatedAt: data.updatedAt
       });
@@ -320,6 +346,10 @@ export async function createProductInFirestore(productData: {
   icon?: string;
   badge?: string;
   minAlert?: number;
+  isGourmetConfig?: boolean;
+  gourmetOptions?: GourmetOptionsConfig | null;
+  isCafeConfig?: boolean;
+  cafeOptions?: CafeOptionsConfig | null;
 }): Promise<string> {
   const path = 'productos';
   try {
@@ -336,6 +366,10 @@ export async function createProductInFirestore(productData: {
       badge: productData.badge || '',
       minAlert: Number(productData.minAlert) || 12,
       type: productData.category === 'Bebidas' ? 'beer' : 'meat',
+      isGourmetConfig: Boolean(productData.isGourmetConfig),
+      gourmetOptions: productData.gourmetOptions || null,
+      isCafeConfig: Boolean(productData.isCafeConfig),
+      cafeOptions: productData.cafeOptions || null,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
@@ -361,6 +395,10 @@ export async function updateProductInFirestore(
     icon: string;
     badge: string;
     minAlert: number;
+    isGourmetConfig: boolean;
+    gourmetOptions: GourmetOptionsConfig | null;
+    isCafeConfig: boolean;
+    cafeOptions: CafeOptionsConfig | null;
   }>
 ): Promise<void> {
   const path = `productos/${productId}`;
