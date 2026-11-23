@@ -18,7 +18,11 @@ import {
   Barcode,
   RefreshCw,
   AlertCircle,
-  Database
+  Database,
+  ChefHat,
+  Check,
+  AlertTriangle,
+  Clock
 } from 'lucide-react';
 import { db } from '../services/firebase';
 import { 
@@ -33,6 +37,14 @@ import {
 import {
   seedInitialProductsIfEmpty
 } from '../services/productsService';
+import {
+  GOURMET_PRESET_GROUPS,
+  CAFE_PRESET_GROUPS,
+  createDefaultGourmetOptions,
+  createDefaultCafeOptions,
+  normalizeGourmetOptions,
+  normalizeCafeOptions
+} from '../utils/customizationOptions';
 
 /**
  * Diccionario global de prueba para simular base de datos de códigos de barra (Auto-completado Inteligente)
@@ -141,9 +153,15 @@ export const InventoryManager = () => {
     isBurgerConfig: false,
     burgerSizes: DEFAULT_BURGER_SIZES.map((s) => ({ ...s })),
     burgerExtras: DEFAULT_BURGER_EXTRAS.map((e) => ({ ...e })),
-    burgerRemovals: [...DEFAULT_BURGER_REMOVALS]
+    burgerRemovals: [...DEFAULT_BURGER_REMOVALS],
+    isGourmetConfig: false,
+    gourmetOptions: createDefaultGourmetOptions(),
+    isCafeConfig: false,
+    cafeOptions: createDefaultCafeOptions()
   });
   const [newFlavorInput, setNewFlavorInput] = useState('');
+  const [extraGourmetChip, setExtraGourmetChip] = useState('');
+  const [extraCafeChip, setExtraCafeChip] = useState('');
 
   // Estado del Escáner de Cámara
   const [isScannerActive, setIsScannerActive] = useState(false);
@@ -154,7 +172,7 @@ export const InventoryManager = () => {
   // Referencia al lector Html5Qrcode
   const html5QrCodeRef = useRef(null);
 
-  // 1. SINCRONIZACIÓN EN TIEMPO REAL CON FIRESTORE (onSnapshot con mapeo estricto { id: doc.id, ...doc.data() })
+  // 1. SINCRONIZACIÓN EN TIEMPO REAL CON FIRESTORE (onSnapshot con mapeo estricto { ...doc.data(), id: doc.id })
   useEffect(() => {
     setIsLoading(true);
     const colRef = collection(db, 'productos');
@@ -170,10 +188,9 @@ export const InventoryManager = () => {
 
         // Mapeo estricto del ID del documento de Firestore
         const docs = snapshot.docs;
-        const firestoreProducts = docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-          id: doc.id // Asegura que el id real del documento nunca sea sobrescrito por datos fantasma
+        const firestoreProducts = docs.map((docSnap) => ({
+          ...docSnap.data(),
+          id: docSnap.id // Asegura que el id real del documento nunca sea sobrescrito por datos fantasma
         }));
 
         firestoreProducts.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -272,9 +289,15 @@ export const InventoryManager = () => {
       isBurgerConfig: false,
       burgerSizes: DEFAULT_BURGER_SIZES.map((s) => ({ ...s })),
       burgerExtras: DEFAULT_BURGER_EXTRAS.map((e) => ({ ...e })),
-      burgerRemovals: [...DEFAULT_BURGER_REMOVALS]
+      burgerRemovals: [...DEFAULT_BURGER_REMOVALS],
+      isGourmetConfig: false,
+      gourmetOptions: createDefaultGourmetOptions(),
+      isCafeConfig: false,
+      cafeOptions: createDefaultCafeOptions()
     });
     setNewFlavorInput('');
+    setExtraGourmetChip('');
+    setExtraCafeChip('');
     setScannerError('');
     setAutoCompleteToast('');
     setModalOpen(true);
@@ -317,12 +340,84 @@ export const InventoryManager = () => {
       isBurgerConfig: Boolean(item.isBurgerConfig),
       burgerSizes: existingSizes,
       burgerExtras: existingExtras,
-      burgerRemovals: existingRemovals
+      burgerRemovals: existingRemovals,
+      isGourmetConfig: Boolean(item.isGourmetConfig),
+      gourmetOptions: item.gourmetOptions
+        ? normalizeGourmetOptions(item.gourmetOptions)
+        : createDefaultGourmetOptions(),
+      isCafeConfig: Boolean(item.isCafeConfig),
+      cafeOptions: item.cafeOptions
+        ? normalizeCafeOptions(item.cafeOptions)
+        : createDefaultCafeOptions()
     });
     setNewFlavorInput('');
+    setExtraGourmetChip('');
+    setExtraCafeChip('');
     setScannerError('');
     setAutoCompleteToast('');
     setModalOpen(true);
+  };
+
+  // Alternar chip en gourmetOptions o cafeOptions con un toque
+  const toggleOptionChip = (configField, groupKey, chipLabel) => {
+    setFormData((prev) => {
+      const currentConfig = prev[configField] || {};
+      const currentList = Array.isArray(currentConfig[groupKey]) ? currentConfig[groupKey] : [];
+      const exists = currentList.includes(chipLabel);
+      const updatedList = exists
+        ? currentList.filter((c) => c !== chipLabel)
+        : [...currentList, chipLabel];
+
+      return {
+        ...prev,
+        [configField]: {
+          ...currentConfig,
+          [groupKey]: updatedList
+        }
+      };
+    });
+  };
+
+  // Agregar chip personalizado extra (Gourmet o Cafetería)
+  const handleAddExtraChip = (configField) => {
+    const rawValue = configField === 'gourmetOptions' ? extraGourmetChip : extraCafeChip;
+    const cleanLabel = rawValue.trim();
+    if (!cleanLabel) return;
+
+    setFormData((prev) => {
+      const currentConfig = prev[configField] || {};
+      const currentExtras = Array.isArray(currentConfig.extras) ? currentConfig.extras : [];
+      if (currentExtras.some((c) => c.toLowerCase() === cleanLabel.toLowerCase())) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [configField]: {
+          ...currentConfig,
+          extras: [...currentExtras, cleanLabel]
+        }
+      };
+    });
+
+    if (configField === 'gourmetOptions') {
+      setExtraGourmetChip('');
+    } else {
+      setExtraCafeChip('');
+    }
+  };
+
+  const handleRemoveExtraChip = (configField, chipLabel) => {
+    setFormData((prev) => {
+      const currentConfig = prev[configField] || {};
+      const currentExtras = Array.isArray(currentConfig.extras) ? currentConfig.extras : [];
+      return {
+        ...prev,
+        [configField]: {
+          ...currentConfig,
+          extras: currentExtras.filter((c) => c !== chipLabel)
+        }
+      };
+    });
   };
 
   // Handlers de Configurador de Hamburguesa / Sándwich
@@ -598,6 +693,9 @@ export const InventoryManager = () => {
           }
         : null;
 
+      const isGourmetEnabled = isComidas && Boolean(formData.isGourmetConfig);
+      const isCafeEnabled = !isComidas && Boolean(formData.isCafeConfig);
+
       const payload = {
         name: formData.name.trim(),
         category: formData.category,
@@ -612,6 +710,10 @@ export const InventoryManager = () => {
         flavors: flavorsList,
         isBurgerConfig: isBurgerEnabled,
         burgerConfig: burgerConfigData,
+        isGourmetConfig: isGourmetEnabled,
+        gourmetOptions: isGourmetEnabled ? formData.gourmetOptions : null,
+        isCafeConfig: isCafeEnabled,
+        cafeOptions: isCafeEnabled ? formData.cafeOptions : null,
         updatedAt: serverTimestamp()
       };
 
@@ -635,7 +737,9 @@ export const InventoryManager = () => {
     }
   };
 
-  const getProductIcon = (type, category) => {
+  const getProductIcon = (type, category, item) => {
+    if (item?.isCafeConfig) return <Coffee className="w-5 h-5 text-orange-500" />;
+    if (item?.isGourmetConfig) return <ChefHat className="w-5 h-5 text-orange-500" />;
     if (category === 'Bebidas') return <Beer className="w-5 h-5 text-orange-500" />;
     switch (type) {
       case 'beer': return <Beer className="w-5 h-5 text-orange-500" />;
@@ -730,7 +834,7 @@ export const InventoryManager = () => {
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-11 h-11 rounded-xl bg-[#151515] border border-neutral-800 flex items-center justify-center shrink-0">
-                      {getProductIcon(item.type, item.category)}
+                      {getProductIcon(item.type, item.category, item)}
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -745,6 +849,18 @@ export const InventoryManager = () => {
                         {isComida && item.isBurgerConfig && (
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-orange-600/20 text-orange-400 border border-orange-500/30">
                             Tamaños y Extras
+                          </span>
+                        )}
+                        {isComida && item.isGourmetConfig && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-orange-600/20 text-orange-400 border border-orange-500/30 flex items-center gap-1">
+                            <ChefHat className="w-3 h-3" />
+                            Gourmet
+                          </span>
+                        )}
+                        {!isComida && item.isCafeConfig && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-orange-600/20 text-orange-400 border border-orange-500/30 flex items-center gap-1">
+                            <Coffee className="w-3 h-3" />
+                            Cafetería
                           </span>
                         )}
                         {!isComida && item.barcode && (
@@ -1174,6 +1290,128 @@ export const InventoryManager = () => {
                       />
                     </div>
                   </div>
+
+                  {/* Opciones de Cafetería / Preparación (Leche, Tamaño y Temperatura) */}
+                  <div className="bg-[#151515] p-3.5 rounded-xl border border-neutral-800 space-y-3">
+                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                      <div>
+                        <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                          <Coffee className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                          <span>Opciones de Cafetería / Preparación (Leche, Tamaño y Temperatura)</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 block mt-0.5">
+                          Chips rápidos en el POS para café, jugos, infusiones y tragos de barra.
+                        </span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(formData.isCafeConfig)}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            isCafeConfig: e.target.checked
+                          }))
+                        }
+                        className="w-4 h-4 accent-orange-600 rounded cursor-pointer shrink-0"
+                      />
+                    </label>
+
+                    {formData.isCafeConfig && (
+                      <div className="pt-3 border-t border-neutral-800 space-y-3">
+                        {CAFE_PRESET_GROUPS.map((group) => {
+                          const selectedInGroup = formData.cafeOptions?.[group.key] || [];
+                          return (
+                            <div key={group.key} className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                                  {group.label}
+                                </span>
+                                <span className="text-[10px] font-mono text-neutral-500">
+                                  {selectedInGroup.length}/{group.chips.length}
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {group.chips.map((chip) => {
+                                  const isActive = selectedInGroup.includes(chip);
+                                  const activeStyles =
+                                    group.key === 'entrega'
+                                      ? 'bg-amber-950/80 border-amber-500/80 text-amber-200'
+                                      : 'bg-orange-600 border-orange-500 text-white';
+
+                                  return (
+                                    <button
+                                      key={chip}
+                                      type="button"
+                                      onClick={() => toggleOptionChip('cafeOptions', group.key, chip)}
+                                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer flex items-center gap-1 active:scale-95 ${
+                                        isActive
+                                          ? activeStyles
+                                          : 'bg-[#222222] border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-700'
+                                      }`}
+                                    >
+                                      {isActive && <Check className="w-3 h-3 shrink-0" />}
+                                      <span>{chip}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {/* Chip extra opcional para Cafetería */}
+                        <div className="pt-2 border-t border-neutral-800/70 space-y-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
+                            Chip Extra (Opcional)
+                          </span>
+                          {Array.isArray(formData.cafeOptions?.extras) &&
+                            formData.cafeOptions.extras.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {formData.cafeOptions.extras.map((extra) => (
+                                  <span
+                                    key={extra}
+                                    className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-orange-600/20 border border-orange-500/50 text-orange-300 flex items-center gap-1.5"
+                                  >
+                                    <span>{extra}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveExtraChip('cafeOptions', extra)}
+                                      className="text-orange-300 hover:text-white cursor-pointer"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={extraCafeChip}
+                              onChange={(e) => setExtraCafeChip(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleAddExtraChip('cafeOptions');
+                                }
+                              }}
+                              placeholder="Ej: Tamaño Grande, Sin Azúcar, Con Canela..."
+                              className="flex-1 px-3 py-1.5 bg-[#222222] border border-neutral-800 rounded-lg text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleAddExtraChip('cafeOptions')}
+                              disabled={!extraCafeChip.trim()}
+                              className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 text-orange-400 text-xs font-semibold border border-neutral-700/60 transition-colors cursor-pointer shrink-0 flex items-center gap-1"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Agregar</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
 
@@ -1522,6 +1760,136 @@ export const InventoryManager = () => {
                                 </button>
                               );
                             })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Configurador Rápido para Cocina Gourmet / Platos Elaborados */}
+                  <div className="bg-[#151515] p-3.5 rounded-xl border border-neutral-800 space-y-3">
+                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                      <div>
+                        <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                          <ChefHat className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                          <span>Opciones de Cocina Gourmet (Cocción, Alergias y Tiempos)</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-400 block mt-0.5">
+                          Punto de cocción, restricciones alimentarias y tiempo de salida para platos elaborados.
+                        </span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(formData.isGourmetConfig)}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            isGourmetConfig: e.target.checked
+                          }))
+                        }
+                        className="w-4 h-4 accent-orange-600 rounded cursor-pointer shrink-0"
+                      />
+                    </label>
+
+                    {formData.isGourmetConfig && (
+                      <div className="pt-3 border-t border-neutral-800 space-y-3">
+                        {GOURMET_PRESET_GROUPS.map((group) => {
+                          const selectedInGroup = formData.gourmetOptions?.[group.key] || [];
+                          return (
+                            <div key={group.key} className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1">
+                                  {group.key === 'alergias' && (
+                                    <AlertTriangle className="w-3 h-3 text-red-400" />
+                                  )}
+                                  {group.key === 'tiempo' && (
+                                    <Clock className="w-3 h-3 text-amber-400" />
+                                  )}
+                                  <span>{group.label}</span>
+                                </span>
+                                <span className="text-[10px] font-mono text-neutral-500">
+                                  {selectedInGroup.length}/{group.chips.length}
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {group.chips.map((chip) => {
+                                  const isActive = selectedInGroup.includes(chip);
+                                  const activeStyles =
+                                    group.key === 'alergias'
+                                      ? 'bg-red-950/90 border-red-500/80 text-red-200'
+                                      : group.key === 'tiempo'
+                                      ? 'bg-amber-950/80 border-amber-500/80 text-amber-200'
+                                      : 'bg-orange-600 border-orange-500 text-white';
+
+                                  return (
+                                    <button
+                                      key={chip}
+                                      type="button"
+                                      onClick={() => toggleOptionChip('gourmetOptions', group.key, chip)}
+                                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer flex items-center gap-1 active:scale-95 ${
+                                        isActive
+                                          ? activeStyles
+                                          : 'bg-[#222222] border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-700'
+                                      }`}
+                                    >
+                                      {isActive && <Check className="w-3 h-3 shrink-0" />}
+                                      <span>{chip}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {/* Chip extra opcional para Gourmet */}
+                        <div className="pt-2 border-t border-neutral-800/70 space-y-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
+                            Chip Extra (Opcional)
+                          </span>
+                          {Array.isArray(formData.gourmetOptions?.extras) &&
+                            formData.gourmetOptions.extras.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {formData.gourmetOptions.extras.map((extra) => (
+                                  <span
+                                    key={extra}
+                                    className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-orange-600/20 border border-orange-500/50 text-orange-300 flex items-center gap-1.5"
+                                  >
+                                    <span>{extra}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveExtraChip('gourmetOptions', extra)}
+                                      className="text-orange-300 hover:text-white cursor-pointer"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={extraGourmetChip}
+                              onChange={(e) => setExtraGourmetChip(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleAddExtraChip('gourmetOptions');
+                                }
+                              }}
+                              placeholder="Ej: Salsa aparte, Sin sal, Extra guarnición..."
+                              className="flex-1 px-3 py-1.5 bg-[#222222] border border-neutral-800 rounded-lg text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleAddExtraChip('gourmetOptions')}
+                              disabled={!extraGourmetChip.trim()}
+                              className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 text-orange-400 text-xs font-semibold border border-neutral-700/60 transition-colors cursor-pointer shrink-0 flex items-center gap-1"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Agregar</span>
+                            </button>
                           </div>
                         </div>
                       </div>

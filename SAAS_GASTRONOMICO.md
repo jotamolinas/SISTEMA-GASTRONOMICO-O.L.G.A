@@ -1,6 +1,6 @@
 # SAAS_GASTRONOMICO.md — Fuente de Verdad del Sistema
 
-Este documento define las reglas inviolables de diseño, arquitectura, lenguaje comercial y hoja de ruta del SaaS Gastronómico (**GastroPOS**). Debe leerse obligatoriamente antes de planificar o ejecutar cualquier cambio en el repositorio.
+Este documento define las reglas inviolables de identidad visual, UX comercial, arquitectura de colecciones y roadmap completo del SaaS Gastronómico (**GastroPOS**). Debe leerse obligatoriamente antes de planificar o ejecutar cualquier cambio en el repositorio.
 
 ---
 
@@ -9,64 +9,65 @@ Este documento define las reglas inviolables de diseño, arquitectura, lenguaje 
 - **Paleta estricta:**
   - **Negro Granito:** `#222222` (tarjetas, paneles y modales) y `#151515` (fondo principal y contenedores internos).
   - **Naranja Mate:** `#EA580C` (`orange-600`) como acento principal de acción y estados activos.
-  - Excepción controlada para impresión térmica (`@media print`): blanco puro (`#FFFFFF`) y negro puro (`#000000`) en alto contraste de `80mm`.
-- **Lenguaje 100% comercial:**
-  - Toda la interfaz está dirigida a dueños, encargados, mozos, cajeros, baristas y cocineros.
-  - **PROHIBIDO** mostrar términos técnicos como `Firebase`, `Firestore`, `Storage`, `Zustand`, `JSON` o nombres internos de colecciones (`comandas_activas`) en botones, etiquetas, badges, encabezados o notificaciones visibles al usuario.
+  - Excepción controlada para impresión térmica (`@media print`): papel `80mm`, fondo blanco puro (`#FFFFFF`) y tipografía monoespaciada negra (`#000000`) de alto contraste.
+- **Interfaz 100% comercial:**
+  - Dirigida a dueños, encargados, mozos, cajeros, baristas y cocineros.
+  - **PROHIBIDO** mostrar términos técnicos como `Firebase`, `Firestore`, `Storage`, `Zustand`, `JSON` o nombres internos de colecciones en botones, etiquetas, badges, encabezados o notificaciones visibles al usuario final.
 - **Cero diálogos nativos bloqueantes:**
-  - **PROHIBIDO** usar `window.prompt()` y `window.confirm()` (son bloqueados en vistas embebidas/iframes).
-  - Toda entrada de datos o confirmación debe resolverse con modales propios en Negro Granito o confirmación inline.
+  - **PROHIBIDO** usar `window.prompt()` y `window.confirm()` nativos (se bloquean en vistas embebidas/iframes).
+  - Toda entrada de texto o confirmación debe resolverse con modales propios en Negro Granito o confirmación inline dentro de la tarjeta.
 
 ---
 
-## 2. Arquitectura y Colecciones de Firestore
+## 2. Colecciones y Reglas de Inventario
 
-El sistema opera sobre React, Tailwind CSS, Zustand (persistencia local-first del POS por mesa) y Firebase (Firestore / Storage / Auth):
+El sistema trabaja sobre tres colecciones principales:
+- **`productos`**: Catálogo maestro en tiempo real.
+- **`comandas_activas`**: Cola operativa en tiempo real entre el POS de salón y `/cocina` (KDS).
+- **`ventas`**: Historial cerrado de cobros (con descuento atómico de stock en batch) para métricas y reportes.
 
-1. **`productos` (Catálogo Maestro):**
-   - Separación estricta entre:
-     - **`Bebidas`:** control de stock por unidades, fardos/cajas (`boxSize`), código de barras (`barcode`) y configurador opcional de cafetería/barra (`isCafeConfig`, `cafeOptions`: Leche/Base, Temperatura/Estilo, Entrega y extras).
-     - **`Comidas`:** disponibilidad al momento o cupo diario, precio obligatorio `> 0 Gs.` y configuradores táctiles por chips:
-       - Pizzas / Empanadas: sabores enteros o `1/2 + 1/2`.
-       - Hamburguesas / Minutas: tamaños, extras y quitar ingredientes.
-       - Gourmet / Platos Elaborados (`isGourmetConfig`, `gourmetOptions`): Cocción/Terminación, Restricciones/Alergias, Tiempo de Salida y extras.
-   - Mapeo estricto del ID real del documento de Firestore (`{ ...doc.data(), id: doc.id }`).
-
-2. **`comandas_activas` (Cola en Tiempo Real POS ↔ Cocina/Barra):**
-   - Documentos generados al presionar **Comanda** en el POS con `mesa`, `items` (incluyendo `selectedTags`, `customTags`, `customizationType` e `itemNote`), `nota`, `cajero`, `estado` (`en_cocina` → `en_preparacion` → `listo`), `fecha` y `timestamp`.
-   - Consumida en tiempo real por `/cocina` (KDS).
-
-3. **`ventas` (Historial Cerrado de Cobros):**
-   - Registro atómico mediante `writeBatch` junto con el descuento de stock en `productos`.
-   - Fuente de datos para el tablero de métricas, ticket promedio, productos más vendidos y reportes administrativos.
+### Rubros y Reglas de Inventario (Separación Estricta)
+- **`Bebidas`**:
+  - Control de stock por unidades, unidades por caja/fardo (`boxSize`), escaneo/auto-completado por código de barras (`barcode`) y precio de venta obligatorio `> 0 Gs.`.
+  - Configurador opcional de **Cafetería / Preparación** (`isCafeConfig`, `cafeOptions`: Leche/Base, Temperatura/Estilo, Entrega y chips extra).
+- **`Comidas`**:
+  - Disponibilidad "Preparación al momento" (`hasDailyLimit: false`) o "Cupo diario limitado" (`hasDailyLimit: true`), con precio de venta obligatorio `> 0 Gs.`.
+  - **Pizzas / Empanadas (`hasFlavors`, `flavors`)**: selección táctil de sabores predefinidos o de la casa, modalidad Entera (1 sabor) o Mitad y Mitad (`1/2 + 1/2`).
+  - **Hamburguesas / Sándwiches (`isBurgerConfig`, `burgerConfig`)**: tamaños/medallones con recargo opcional, toppings/extras pagos y quitar ingredientes sin cargo.
+  - **Cocina Gourmet / Platos Elaborados (`isGourmetConfig`, `gourmetOptions`)**: cocción/terminación, restricciones/alergias, tiempo de salida y chips extra personalizados.
 
 ---
 
-## 3. Estado Actual y Roadmap Completo del SaaS
+## 3. Roadmap Completo del SaaS
 
-### Completado
-- CRUD de inventario en tiempo real con eliminación directa sin `window.confirm()`.
-- Configuradores rápidos por rubro (Gourmet: cocción, alergias y tiempos; Cafetería/Bar: leche, temperatura/estilo y entrega) persistidos en `productos`.
-- Terminal POS (`/pos-terminal`) con cuentas independientes por mesa (3 mesas iniciales por defecto + modal propio para crear y renombrar mesas/cuentas dinámicamente) y modal táctil de personalización rápida.
-- **Bloque A — Motor Operativo:**
-  1. **Monitor de Cocina `/cocina` (KDS):** filtro de estación con **`Solo Cocina (Comidas)`** activo por defecto, **`Barra (Bebidas)`** y **`Todas`**; timbre sonoro sintetizado vía **Web Audio API**; botón **`Probar Alerta`**; y **triple piscada naranja intensa de `0.5s` cada destello (~`1.5s` total)** al entrar una comanda nueva (ignorando la carga inicial).
-  2. **Impresión térmica opcional de `80mm` en `POSDashboard`:** botón **`Imprimir Ticket (80mm)`** con plantilla `@media print` (`window.print()`) en alto contraste blanco/negro, incluyendo personalizaciones, alergias, tiempos y notas.
+### Bloque A — Motor Operativo (Actual)
+- [x] Inventario diferenciado (`Bebidas` vs `Comidas`), validación de precio `> 0 Gs.`, eliminación directa sin `window.confirm`.
+- [x] Configuradores táctiles completos en `InventoryManager` y `POSDashboard`: Sabores (`Entera` / `1/2 + 1/2`), Hamburguesas (tamaños, extras, quitar ingredientes), Cocina Gourmet (cocción, alergias, tiempos + chip extra) y Cafetería/Bar (leche, temperatura/estilo, entrega + chip extra).
+- [x] POS con cuentas independientes por mesa (3 mesas por defecto + modal nativo en Negro Granito para crear/renombrar mesas sin `window.prompt`).
+- [x] Monitor `/cocina` (KDS) sin precios, con filtro estricto de estación (`Solo Cocina (Comidas)` por defecto, `Barra (Bebidas)` y `Todas`), triple piscada naranja intensa (`0.5s × 3 ≈ 1.5s`, `pointer-events-none`) al entrar una nueva comanda (`docChanges` `added`, ignorando carga inicial), aviso sonoro Web Audio API (`Sonido ON/OFF`), botón `Probar Alerta` y cierre `Listo / Entregado` con confirmación inline.
+- [x] Impresión térmica opcional de `80mm` en `POSDashboard` (`Imprimir Ticket / Pre-cuenta`, casilla opcional `Imprimir ticket (80mm) al cobrar` y reimpresión del último cobro).
 
-### Pendiente — Bloque B: Gestión y Administración
-3. **Tablero de métricas reales en Consola Admin:** conectado en vivo a `ventas` (ventas del día, ticket promedio, productos top y horas pico).
-4. **Fotografías de productos en `InventoryManager`:** carga, vista previa y actualización usando Firebase Storage.
+### Bloque B — Gestión y Catálogo (En Progreso)
+- [x] Tablero de métricas reales en Consola Admin conectado en vivo a `ventas` y `comandas_activas` (ventas del día, órdenes cerradas, mesas activas, ticket promedio, productos más vendidos y franja horaria pico sin datos simulados).
+- [ ] Configuración comercial y fiscal del local (nombre del restaurante, dirección, teléfono, pie de ticket, parámetros operativos).
+- [ ] Carga de fotos de productos en `InventoryManager` (con asignación automática para bebidas/marcas conocidas y mejora visual estilo carta/campaña con IA para comidas en plan pago).
 
-### Pendiente — Bloque C: Experiencia Cliente y Lanzamiento
-5. **Menú QR público móvil:** carta digital de solo lectura sincronizada en vivo con `productos`.
-6. **Landing comercial auto-generada:** página pública personalizada del restaurante.
-7. **Seguridad y despliegue:** autenticación estricta de roles (`Admin`, `Caja/Mozo`, `Cocina`) y despliegue en producción.
+### Bloque C — Experiencia Cliente
+- [ ] Menú QR público móvil descargable/imprimible sincronizado en tiempo real con `productos`.
+- [ ] Landing comercial auto-generada del restaurante (plan pago).
+
+### Bloque D — Seguridad y Escala
+- [ ] Arquitectura multi-tenant estrictamente aislada por local/comercio.
+- [ ] Control de acceso por roles (`Admin`, `Caja/Mozo`, `Cocina/Barra`).
+
+### Bloque E — Facturación Electrónica
+- [ ] Integración futura desacoplada reutilizando la base y experiencia de facturación electrónica (**SIFEN**) de O.L.G.A. una vez homologada/aprobada.
 
 ---
 
 ## 4. Protocolo de Ejecución Obligatorio
 
-En cada sesión de desarrollo se debe seguir estrictamente este orden:
-1. **Leer `SAAS_GASTRONOMICO.md`** antes de planificar cualquier cambio.
-2. **Inspeccionar los archivos reales** del repositorio antes de editar para preservar la lógica existente (mapeo estricto de IDs de Firestore, cuentas separadas por mesa en Zustand, descuentos atómicos de stock).
-3. **Respetar 100% el lenguaje comercial** en todos los textos visibles de la interfaz y evitar `window.prompt()` / `window.confirm()`.
-4. **Verificar la compilación** (`npm run build` y `npm run lint` / `tsc --noEmit`) al finalizar cada entrega para garantizar cero errores de sintaxis o tipos.
+1. Leer `SAAS_GASTRONOMICO.md` antes de planificar cualquier cambio.
+2. Inspeccionar siempre los archivos reales del repositorio antes de editar para no romper lógica consolidada (mapeo estricto de IDs de Firestore, cuentas separadas en Zustand, sabores/hamburguesas/cupo diario).
+3. Mantener lenguaje 100% comercial en la interfaz y cero `window.prompt` / `window.confirm`.
+4. Verificar compilación (`npm run build` y `npm run lint` / `tsc --noEmit`) al finalizar cada entrega.

@@ -123,10 +123,12 @@ const POSTerminalRoute: React.FC = () => {
 };
 
 /**
- * Ruta Independiente para la Pantalla de Cocina KDS (/cocina)
+ * Ruta Independiente para la Pantalla de Cocina / Barra (/cocina y /barra)
  * Muestra las comandas activas en tiempo real sin precios ni menú lateral.
  */
-const CocinaRoute: React.FC = () => {
+const CocinaRoute: React.FC<{ initialStation?: 'comidas' | 'bebidas' | 'todas' }> = ({
+  initialStation
+}) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const navigate = useNavigate();
@@ -156,7 +158,7 @@ const CocinaRoute: React.FC = () => {
       setCurrentUser(null);
       navigate('/');
     } catch (error) {
-      console.error('Error al salir de Cocina KDS:', error);
+      console.error('Error al salir de Cocina:', error);
     }
   };
 
@@ -165,7 +167,7 @@ const CocinaRoute: React.FC = () => {
       <div className="min-h-screen bg-[#151515] flex flex-col items-center justify-center gap-4">
         <div className="w-10 h-10 border-3 border-neutral-800 border-t-orange-500 rounded-full animate-spin"></div>
         <div className="font-bold text-neutral-400 text-xs tracking-widest uppercase">
-          Iniciando Pantalla de Cocina...
+          {initialStation === 'bebidas' ? 'Iniciando Pantalla de Barra...' : 'Iniciando Pantalla de Cocina...'}
         </div>
       </div>
     );
@@ -175,7 +177,13 @@ const CocinaRoute: React.FC = () => {
     return <LoginScreen onLogin={() => {}} />;
   }
 
-  return <KitchenDisplay currentUser={currentUser} onLogout={handleLogout} />;
+  return (
+    <KitchenDisplay
+      currentUser={currentUser}
+      onLogout={handleLogout}
+      initialStation={initialStation}
+    />
+  );
 };
 
 /**
@@ -193,8 +201,9 @@ export default function App() {
       {/* 3. Terminal Táctil Independiente para Mozos (100% pantalla completa) */}
       <Route path="/pos-terminal" element={<POSTerminalRoute />} />
 
-      {/* 4. Pantalla de Cocina KDS en tiempo real */}
+      {/* 4. Pantallas de Cocina y Barra en tiempo real */}
       <Route path="/cocina" element={<CocinaRoute />} />
+      <Route path="/barra" element={<CocinaRoute initialStation="bebidas" />} />
 
       {/* Redirección por defecto */}
       <Route path="*" element={<Navigate to="/" replace />} />

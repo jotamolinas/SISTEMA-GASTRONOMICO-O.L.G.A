@@ -98,13 +98,14 @@ export const useCartStore = create(
           const table = targetTable || state.activeTable || 'Mesa 1';
           const currentTableCart = state.tableCarts[table] || [];
           const existingItemIndex = currentTableCart.findIndex((item) => item.id === product.id);
+          const qtyToAdd = Math.max(1, Number(product.quantityToAdd) || 1);
 
           let updatedTableCart;
           if (existingItemIndex > -1) {
             updatedTableCart = [...currentTableCart];
             updatedTableCart[existingItemIndex] = {
               ...updatedTableCart[existingItemIndex],
-              quantity: (updatedTableCart[existingItemIndex].quantity || 1) + 1,
+              quantity: (updatedTableCart[existingItemIndex].quantity || 1) + qtyToAdd,
             };
           } else {
             updatedTableCart = [
@@ -121,8 +122,11 @@ export const useCartStore = create(
                 flavorDetail: product.flavorDetail || '',
                 flavorMode: product.flavorMode || null,
                 selectedFlavors: Array.isArray(product.selectedFlavors) ? product.selectedFlavors : [],
+                customizationType: product.customizationType || null,
+                selectedTags: Array.isArray(product.selectedTags) ? product.selectedTags : [],
+                customTags: product.customTags || null,
                 itemNote: product.itemNote || '',
-                quantity: 1,
+                quantity: qtyToAdd,
               },
             ];
           }

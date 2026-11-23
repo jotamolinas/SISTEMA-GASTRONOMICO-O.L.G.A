@@ -3,22 +3,43 @@ import { useNavigate } from 'react-router-dom';
 import { AdminSidebar } from './AdminSidebar';
 import { DashboardHome } from './DashboardHome';
 import { InventoryManager } from './InventoryManager';
+import { useCartStore } from '../store/useCartStore';
 import { 
   Tablet, 
   ExternalLink, 
   QrCode, 
-  Package, 
-  Settings, 
   Check, 
   Copy, 
-  Printer, 
-  Plus
+  Printer
 } from 'lucide-react';
 
 export const AdminLayout = ({ currentUser, onLogout }) => {
   const navigate = useNavigate();
+  const tableCarts = useCartStore((state) => state.tableCarts);
   const [activeSection, setActiveSection] = useState('tablero');
   const [copiedMenuLink, setCopiedMenuLink] = useState(false);
+
+  const realTableNames = Object.keys(tableCarts || {});
+
+  const handleCopyMenuLink = async () => {
+    const url = window.location.origin;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const input = document.createElement('input');
+        input.value = url;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+      }
+      setCopiedMenuLink(true);
+      setTimeout(() => setCopiedMenuLink(false), 3000);
+    } catch (err) {
+      console.warn('Error al copiar enlace:', err);
+    }
+  };
 
   const renderContent = () => {
     switch (activeSection) {
@@ -40,11 +61,7 @@ export const AdminLayout = ({ currentUser, onLogout }) => {
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(window.location.origin);
-                  setCopiedMenuLink(true);
-                  setTimeout(() => setCopiedMenuLink(false), 3000);
-                }}
+                onClick={handleCopyMenuLink}
                 className="px-3.5 py-2 bg-[#151515] hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800 text-xs font-semibold uppercase rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
               >
                 {copiedMenuLink ? <Check className="w-4 h-4 text-orange-500" /> : <Copy className="w-4 h-4" />}
@@ -52,29 +69,33 @@ export const AdminLayout = ({ currentUser, onLogout }) => {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[
-                { table: 'Mesa 01', zone: 'Salón Principal' },
-                { table: 'Mesa 04', zone: 'Salón Principal' },
-                { table: 'Barra 01', zone: 'Sector Barra' }
-              ].map((qr, i) => (
-                <div key={i} className="bg-[#222222] border border-neutral-800 p-5 rounded-xl flex flex-col items-center text-center">
-                  <div className="w-32 h-32 bg-white p-2.5 rounded-lg flex items-center justify-center mb-3">
-                    <QrCode className="w-24 h-24 text-neutral-900" />
+            {realTableNames.length === 0 ? (
+              <div className="bg-[#222222] border border-neutral-800 p-8 rounded-xl text-center">
+                <p className="text-xs text-neutral-400">
+                  Aún no hay mesas configuradas. Crea cuentas desde la Terminal de Mozos (POS) para generar sus códigos QR.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {realTableNames.map((tableName) => (
+                  <div key={tableName} className="bg-[#222222] border border-neutral-800 p-5 rounded-xl flex flex-col items-center text-center">
+                    <div className="w-32 h-32 bg-white p-2.5 rounded-lg flex items-center justify-center mb-3">
+                      <QrCode className="w-24 h-24 text-neutral-900" />
+                    </div>
+                    <h4 className="font-bold text-white text-sm">{tableName}</h4>
+                    <p className="text-xs text-neutral-400 mb-3">Cuenta activa del salón</p>
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      className="w-full py-2 bg-[#151515] hover:bg-neutral-800 text-neutral-300 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 border border-neutral-800 cursor-pointer"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>Imprimir QR</span>
+                    </button>
                   </div>
-                  <h4 className="font-bold text-white text-sm">{qr.table}</h4>
-                  <p className="text-xs text-neutral-400 mb-3">{qr.zone}</p>
-                  <button
-                    type="button"
-                    onClick={() => window.print()}
-                    className="w-full py-2 bg-[#151515] hover:bg-neutral-800 text-neutral-300 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 border border-neutral-800 cursor-pointer"
-                  >
-                    <Printer className="w-3.5 h-3.5" />
-                    <span>Imprimir QR</span>
-                  </button>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         );
 

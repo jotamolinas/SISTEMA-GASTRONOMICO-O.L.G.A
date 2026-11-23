@@ -34,8 +34,23 @@ import {
   LogOut,
   RefreshCw,
   AlertCircle,
-  Database
+  Database,
+  ChefHat,
+  AlertTriangle,
+  Clock,
+  Check,
+  Printer
 } from 'lucide-react';
+import {
+  GOURMET_PRESET_GROUPS,
+  CAFE_PRESET_GROUPS,
+  normalizeGourmetOptions,
+  normalizeCafeOptions,
+  normalizeSelectedTags,
+  isAllergyTag,
+  isTimingTag,
+  buildCartItemKey
+} from '../utils/customizationOptions';
 
 export const formatCurrency = (amount) => {
   return new Intl.NumberFormat('es-PY', {
@@ -45,7 +60,9 @@ export const formatCurrency = (amount) => {
 };
 
 // Íconos sobrios de productos
-const ProductIcon = ({ type, category }) => {
+const ProductIcon = ({ type, category, isGourmetConfig, isCafeConfig }) => {
+  if (isCafeConfig) return <Coffee className="w-6 h-6 text-orange-500" />;
+  if (isGourmetConfig) return <ChefHat className="w-6 h-6 text-orange-500" />;
   if (category === 'Bebidas') return <Beer className="w-6 h-6 text-orange-500" />;
   switch (type) {
     case 'burger':
@@ -71,11 +88,11 @@ const ProductIcon = ({ type, category }) => {
 export const POSDashboard = ({ currentUser, onLogout }) => {
   const navigate = useNavigate();
 
-  // 1. ESTADO SINCRONIZADO CON FIRESTORE (Lectura de Datos centralizada)
+  // 1. ESTADO SINCRONIZADO EN TIEMPO REAL
   const [products, setProducts] = useState([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
 
-  // 2. CONEXIÓN AL STORE ZUSTAND (LOCAL-FIRST CON CUENTAS SEPARADAS POR MESA)
+  // 2. CUENTAS SEPARADAS POR MESA (LOCAL-FIRST)
   const { 
     tableCarts, 
     activeTable, 
@@ -94,22 +111,35 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
     return keys.length > 0 ? keys : ['Mesa 1', 'Mesa 2', 'Mesa 3'];
   }, [tableCarts]);
 
-  // Al hacer clic en +: calcula cuántas mesas existen y sugiere el nombre
+  // Modal propio en Negro Granito para crear / renombrar mesas (prohibido window.prompt)
+  const [showTableModal, setShowTableModal] = useState(false);
+  const [tableModalMode, setTableModalMode] = useState('add'); // 'add' | 'rename'
+  const [tableNameInput, setTableNameInput] = useState('');
+
   const handleAddNewTable = () => {
     const tableCount = Object.keys(tableCarts || {}).length;
-    const suggestedName = `Mesa ${tableCount + 1}`;
-    const newTable = window.prompt("Nombre de la nueva cuenta/mesa:", suggestedName);
-    if (newTable && newTable.trim()) {
-      addTable(newTable.trim());
-    }
+    setTableModalMode('add');
+    setTableNameInput(`Mesa ${tableCount + 1}`);
+    setShowTableModal(true);
   };
 
-  // Renombrar la mesa activa actual
   const handleRenameActiveTable = () => {
-    const newName = window.prompt("Nuevo nombre para la mesa:", activeTable);
-    if (newName && newName.trim() && newName.trim() !== activeTable) {
-      renameTable(activeTable, newName.trim());
+    setTableModalMode('rename');
+    setTableNameInput(activeTable || 'Mesa 1');
+    setShowTableModal(true);
+  };
+
+  const handleSubmitTableModal = (e) => {
+    if (e) e.preventDefault();
+    const cleanName = tableNameInput.trim();
+    if (!cleanName) return;
+
+    if (tableModalMode === 'add') {
+      addTable(cleanName);
+    } else if (tableModalMode === 'rename' && cleanName !== activeTable) {
+      renameTable(activeTable, cleanName);
     }
+    setShowTableModal(false);
   };
 
   // Carrito y productos exclusivos de la mesa activa seleccionada
@@ -138,7 +168,18 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
   const [selectedBurgerRemovals, setSelectedBurgerRemovals] = useState([]);
   const [burgerNote, setBurgerNote] = useState('');
 
-  // SUSCRIPCIÓN EN TIEMPO REAL A FIRESTORE (onSnapshot con mapeo estricto { id: doc.id, ...doc.data() })
+  // Modal Rápido de Personalización Gourmet / Cafetería
+  const [quickModalProduct, setQuickModalProduct] = useState(null);
+  const [selectedQuickTags, setSelectedQuickTags] = useState([]);
+  const [quickItemNote, setQuickItemNote] = useState('');
+  const [quickQuantity, setQuickQuantity] = useState(1);
+
+  // Estado para impresión térmica opcional 80mm
+  const [printOnCheckout, setPrintOnCheckout] = useState(false);
+  const [lastPaidReceipt, setLastPaidReceipt] = useState(null);
+  const [activePrintReceipt, setActivePrintReceipt] = useState(null);
+
+  // SUSCRIPCIÓN EN TIEMPO REAL AL CATÁLOGO (mapeo estricto { ...docSnap.data(), id: docSnap.id })
   useEffect(() => {
     setIsLoadingProducts(true);
     const colRef = collection(db, 'productos');
@@ -154,7 +195,6 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
 
         const docs = snapshot.docs;
         const firestoreProducts = docs.map((docSnap) => ({
-          id: docSnap.id,
           ...docSnap.data(),
           id: docSnap.id
         }));
@@ -164,7 +204,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
         setIsLoadingProducts(false);
       },
       (err) => {
-        console.error('Error al sincronizar productos para POS desde Firestore:', err);
+        console.error('Error al sincronizar catálogo POS:', err);
         setIsLoadingProducts(false);
       }
     );
@@ -186,6 +226,70 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
     return cart.reduce((acc, item) => acc + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0);
   }, [cart]);
   const taxAmount = Math.round(total * 0.10);
+
+  const formatPrintDateTime = () =>
+    new Intl.DateTimeFormat('es-PY', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(new Date());
+
+  const triggerThermalPrint = (receiptSnapshot) => {
+    if (!receiptSnapshot || !Array.isArray(receiptSnapshot.items) || receiptSnapshot.items.length === 0) {
+      return;
+    }
+
+    setActivePrintReceipt(receiptSnapshot);
+    document.body.classList.add('printing-thermal-80mm');
+
+    const cleanup = () => {
+      document.body.classList.remove('printing-thermal-80mm');
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+
+    setTimeout(() => {
+      window.print();
+      setTimeout(cleanup, 1000);
+    }, 60);
+  };
+
+  const handlePrintThermalTicket = () => {
+    if (cart.length > 0) {
+      triggerThermalPrint({
+        tipo: 'PRE-CUENTA / TICKET DE MESA',
+        mesa: activeTable || 'Mesa 1',
+        items: cart.map((i) => ({ ...i })),
+        total: Number(total) || 0,
+        taxAmount: Number(taxAmount) || 0,
+        totalItemsCount: Number(totalItemsCount) || 0,
+        nota: (ticketNote || '').trim(),
+        cajero: currentUser?.email?.split('@')[0] || 'Mozo Salón',
+        fecha: formatPrintDateTime()
+      });
+    } else if (lastPaidReceipt) {
+      triggerThermalPrint(lastPaidReceipt);
+    }
+  };
+
+  const receiptToPrint = useMemo(() => {
+    if (activePrintReceipt && activePrintReceipt.items?.length > 0) {
+      return activePrintReceipt;
+    }
+    return {
+      tipo: 'PRE-CUENTA / TICKET DE MESA',
+      mesa: activeTable || 'Mesa 1',
+      items: cart,
+      total: Number(total) || 0,
+      taxAmount: Number(taxAmount) || 0,
+      totalItemsCount: Number(totalItemsCount) || 0,
+      nota: (ticketNote || '').trim(),
+      cajero: currentUser?.email?.split('@')[0] || 'Mozo Salón',
+      fecha: formatPrintDateTime()
+    };
+  }, [activePrintReceipt, activeTable, cart, total, taxAmount, totalItemsCount, ticketNote, currentUser]);
 
   // 3. COBRO Y DESCUENTO AUTOMÁTICO (BATCH WRITE - CRÍTICO)
   const handleCobrar = async () => {
@@ -216,6 +320,9 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
           flavorDetail: i.flavorDetail || '',
           flavorMode: i.flavorMode || null,
           selectedFlavors: Array.isArray(i.selectedFlavors) ? i.selectedFlavors : [],
+          customizationType: i.customizationType || null,
+          selectedTags: normalizeSelectedTags(i.selectedTags || []),
+          customTags: i.customTags || null,
           itemNote: i.itemNote || ''
         })),
         fecha: new Date().toISOString(),
@@ -250,7 +357,18 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
       // C) Ejecutar batch.commit()
       await batch.commit();
 
-      console.log('--- COMANDA COBRADA EN BATCH FIRESTORE ---', ventaPayload);
+      const paidSnapshot = {
+        tipo: 'COMPROBANTE DE COBRO',
+        mesa: activeTable || 'Mesa 1',
+        items: cart.map((i) => ({ ...i })),
+        total: Number(total) || 0,
+        taxAmount: Number(taxAmount) || 0,
+        totalItemsCount: Number(totalItemsCount) || 0,
+        nota: (ticketNote || '').trim(),
+        cajero: currentUser?.email?.split('@')[0] || 'Mozo Salón',
+        fecha: formatPrintDateTime()
+      };
+      setLastPaidReceipt(paidSnapshot);
 
       // D) Notificación solicitada: "Comanda registrada con éxito"
       setSuccessToast('Comanda registrada con éxito');
@@ -259,6 +377,11 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
       // E) Limpiar ticket de la mesa activa
       clearCart(activeTable);
       setTicketNote('');
+
+      // F) Impresión térmica 80mm opcional al cobrar
+      if (printOnCheckout) {
+        triggerThermalPrint(paidSnapshot);
+      }
     } catch (err) {
       console.error('Error al procesar venta:', err);
       setPaymentError('Error al registrar la venta. Intenta de nuevo.');
@@ -291,6 +414,9 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
           flavorDetail: i.flavorDetail || '',
           flavorMode: i.flavorMode || null,
           selectedFlavors: Array.isArray(i.selectedFlavors) ? i.selectedFlavors : [],
+          customizationType: i.customizationType || null,
+          selectedTags: normalizeSelectedTags(i.selectedTags || []),
+          customTags: i.customTags || null,
           itemNote: i.itemNote || ''
         })),
         estado: 'en_cocina',
@@ -303,8 +429,6 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
 
       await addDoc(comandasCol, comandaPayload);
 
-      console.log('--- COMANDA ENVIADA A comandas_activas ---', comandaPayload);
-
       // Alerta exitosa requerida: "Enviado a cocina"
       setSuccessToast('Enviado a cocina');
       setTimeout(() => setSuccessToast(null), 3500);
@@ -313,7 +437,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
       clearCart(activeTable);
       setTicketNote('');
     } catch (err) {
-      console.error('Error al guardar comanda en Firestore:', err);
+      console.error('Error al enviar comanda:', err);
       setPaymentError('Error al enviar la comanda a cocina. Verifica la conexión.');
       setTimeout(() => setPaymentError(''), 4000);
     } finally {
@@ -321,7 +445,82 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
     }
   };
 
-  // MANEJO DE PRODUCTO CON SUBMENÚ DE SABORES O CONFIGURADOR DE HAMBURGUESA
+  // Grupos táctiles activos para Modal Rápido Gourmet / Cafetería
+  const activeQuickGroups = useMemo(() => {
+    if (!quickModalProduct) return [];
+
+    if (quickModalProduct.isGourmetConfig) {
+      const opts = normalizeGourmetOptions(quickModalProduct.gourmetOptions);
+      const groups = GOURMET_PRESET_GROUPS.map((g) => ({
+        key: g.key,
+        label: g.label,
+        chips: Array.isArray(opts[g.key]) ? opts[g.key] : []
+      })).filter((g) => g.chips.length > 0);
+
+      if (Array.isArray(opts.extras) && opts.extras.length > 0) {
+        groups.push({ key: 'extras', label: 'Opciones Extra', chips: opts.extras });
+      }
+      return groups;
+    }
+
+    if (quickModalProduct.isCafeConfig) {
+      const opts = normalizeCafeOptions(quickModalProduct.cafeOptions);
+      const groups = CAFE_PRESET_GROUPS.map((g) => ({
+        key: g.key,
+        label: g.label,
+        chips: Array.isArray(opts[g.key]) ? opts[g.key] : []
+      })).filter((g) => g.chips.length > 0);
+
+      if (Array.isArray(opts.extras) && opts.extras.length > 0) {
+        groups.push({ key: 'extras', label: 'Opciones Extra', chips: opts.extras });
+      }
+      return groups;
+    }
+
+    return [];
+  }, [quickModalProduct]);
+
+  const toggleQuickTag = (groupKey, chipLabel) => {
+    setSelectedQuickTags((prev) => {
+      const exists = prev.some((t) => t.group === groupKey && t.label === chipLabel);
+      if (exists) {
+        return prev.filter((t) => !(t.group === groupKey && t.label === chipLabel));
+      }
+      return [...prev, { group: groupKey, label: chipLabel }];
+    });
+  };
+
+  const handleConfirmQuickCustomization = (e) => {
+    if (e) e.preventDefault();
+    if (!quickModalProduct) return;
+
+    const cleanNote = quickItemNote.trim();
+    const groupedMap = {};
+    selectedQuickTags.forEach((tag) => {
+      if (!groupedMap[tag.group]) groupedMap[tag.group] = [];
+      groupedMap[tag.group].push(tag.label);
+    });
+
+    const variantId = buildCartItemKey(quickModalProduct.id, selectedQuickTags, cleanNote);
+
+    addToCart({
+      ...quickModalProduct,
+      id: variantId,
+      productId: quickModalProduct.id,
+      customizationType: quickModalProduct.isGourmetConfig ? 'gourmet' : 'cafe',
+      selectedTags: selectedQuickTags,
+      customTags: Object.keys(groupedMap).length > 0 ? groupedMap : null,
+      itemNote: cleanNote,
+      quantityToAdd: quickQuantity
+    });
+
+    setQuickModalProduct(null);
+    setSelectedQuickTags([]);
+    setQuickItemNote('');
+    setQuickQuantity(1);
+  };
+
+  // MANEJO DE PRODUCTO: SABORES / HAMBURGUESA / GOURMET / CAFETERÍA / DIRECTO
   const handleProductClick = (product) => {
     if (
       product?.hasFlavors === true &&
@@ -345,6 +544,14 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
       setSelectedBurgerExtras([]);
       setSelectedBurgerRemovals([]);
       setBurgerNote('');
+      return;
+    }
+
+    if (product?.isGourmetConfig === true || product?.isCafeConfig === true) {
+      setQuickModalProduct(product);
+      setSelectedQuickTags([]);
+      setQuickItemNote('');
+      setQuickQuantity(1);
       return;
     }
 
@@ -512,7 +719,8 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
   }, [products, selectedCategory, searchTerm]);
 
   return (
-    <div className="min-h-screen bg-[#151515] text-neutral-100 flex flex-col font-sans select-none">
+    <>
+    <div className="min-h-screen bg-[#151515] text-neutral-100 flex flex-col font-sans select-none print:hidden">
       {/* 1. BARRA SUPERIOR: NAVEGACIÓN Y MESAS */}
       <header className="h-14 bg-[#1a1a1a] border-b border-neutral-800 px-4 sm:px-6 flex items-center justify-between shrink-0 z-30">
         <div className="flex items-center gap-4">
@@ -546,7 +754,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
           </div>
         </div>
 
-        {/* Selector de Mesas Conectado a Zustand (Una sola línea horizontal deslizable) */}
+        {/* Selector de Mesas (Una sola línea horizontal deslizable) */}
         <div className="flex items-center gap-1.5 max-w-[45vw] sm:max-w-xs md:max-w-md lg:max-w-lg overflow-hidden">
           <span className="text-xs text-neutral-400 font-medium hidden sm:inline mr-1 shrink-0">Mesa:</span>
           <div className="flex flex-row overflow-x-auto whitespace-nowrap items-center gap-1.5 p-1 bg-[#151515] rounded-lg border border-neutral-800 hide-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -587,8 +795,18 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
           </div>
         </div>
 
-        {/* Salir o Usuario */}
-        <div className="flex items-center gap-3">
+        {/* Acceso a Cocina + Usuario / Salir */}
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => navigate('/cocina')}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#222222] hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
+            title="Abrir monitor de cocina"
+          >
+            <ChefHat className="w-3.5 h-3.5 text-orange-500" />
+            <span className="hidden sm:inline">Cocina</span>
+          </button>
+
           <span className="text-xs text-neutral-400 hidden lg:inline">
             {currentUser?.email?.split('@')[0] || 'Mozo'}
           </span>
@@ -719,6 +937,10 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                     product.flavors.length > 0;
                   const hasBurgerConfig =
                     product.isBurgerConfig === true && Boolean(product.burgerConfig);
+                  const hasGourmetConfig = product.isGourmetConfig === true;
+                  const hasCafeConfig = product.isCafeConfig === true;
+                  const isCustomizable =
+                    hasFlavors || hasBurgerConfig || hasGourmetConfig || hasCafeConfig;
 
                   return (
                     <div
@@ -733,7 +955,12 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                     >
                       {/* Ícono a la izquierda */}
                       <div className="w-12 h-12 rounded-lg bg-[#151515] border border-neutral-800 flex items-center justify-center shrink-0">
-                        <ProductIcon type={product.icon} category={product.category} />
+                        <ProductIcon
+                          type={product.icon}
+                          category={product.category}
+                          isGourmetConfig={hasGourmetConfig}
+                          isCafeConfig={hasCafeConfig}
+                        />
                       </div>
 
                       {/* Título, precio y disponibilidad */}
@@ -769,6 +996,16 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                               Personalizable
                             </span>
                           )}
+                          {hasGourmetConfig && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded font-semibold bg-orange-600/20 text-orange-400 border border-orange-500/30">
+                              Gourmet
+                            </span>
+                          )}
+                          {hasCafeConfig && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded font-semibold bg-orange-600/20 text-orange-400 border border-orange-500/30">
+                              Cafetería
+                            </span>
+                          )}
                         </div>
                         <h3 className="font-semibold text-white text-sm leading-tight truncate mt-0.5">
                           {product.name}
@@ -793,7 +1030,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                         <span>
                           {inCart
                             ? `(${inCartQty})`
-                            : hasFlavors || hasBurgerConfig
+                            : isCustomizable
                             ? 'Elegir'
                             : 'Añadir'}
                         </span>
@@ -938,9 +1175,16 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                 </p>
               </div>
             ) : (
-              cart.map((item) => (
+              cart.map((item) => {
+                const tags = normalizeSelectedTags(item.selectedTags || []);
+                const sortedTags = [...tags].sort((a, b) => {
+                  const score = (t) => (isAllergyTag(t) ? 0 : isTimingTag(t) ? 1 : 2);
+                  return score(a) - score(b);
+                });
+
+                return (
                 <div key={item.id} className="pt-3 first:pt-0 flex flex-col gap-2">
-                  {/* Nombre, detalle de sabores grande y visible, nota y precio unitario */}
+                  {/* Nombre, detalle de sabores/hamburguesa, etiquetas gourmet/cafetería, nota y precio unitario */}
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <h4 className="text-xs font-semibold text-white leading-snug">
@@ -951,6 +1195,30 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                           <p className="text-sm font-extrabold text-orange-400 leading-tight">
                             {item.flavorDetail}
                           </p>
+                        </div>
+                      )}
+                      {sortedTags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {sortedTags.map((tag, tIdx) => {
+                            const allergy = isAllergyTag(tag);
+                            const timing = isTimingTag(tag);
+                            return (
+                              <span
+                                key={`${tag.group}-${tag.label}-${tIdx}`}
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] leading-tight border ${
+                                  allergy
+                                    ? 'bg-red-950/90 border-red-600/80 text-red-200 font-bold'
+                                    : timing
+                                    ? 'bg-amber-950/80 border-amber-500/70 text-amber-200 font-semibold'
+                                    : 'bg-orange-600/15 border-orange-500/40 text-orange-300 font-medium'
+                                }`}
+                              >
+                                {allergy && <AlertTriangle className="w-2.5 h-2.5 text-red-400 shrink-0" />}
+                                {!allergy && timing && <Clock className="w-2.5 h-2.5 text-amber-400 shrink-0" />}
+                                <span>{tag.label}</span>
+                              </span>
+                            );
+                          })}
                         </div>
                       )}
                       {item.itemNote && (
@@ -997,7 +1265,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                       {/* Botón pequeño [+] */}
                       <button
                         type="button"
-                        onClick={() => addToCart(item)}
+                        onClick={() => addToCart({ ...item, quantityToAdd: 1 })}
                         className="w-6 h-6 rounded bg-orange-600 hover:bg-orange-500 text-white flex items-center justify-center text-xs transition-colors cursor-pointer"
                         title="Aumentar cantidad"
                       >
@@ -1006,7 +1274,8 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                     </div>
                   </div>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
 
@@ -1021,7 +1290,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
             />
           </div>
 
-          {/* TOTAL ACTUALIZADO EN TIEMPO REAL Y BOTÓN COBRAR (BATCH WRITE) */}
+          {/* TOTAL ACTUALIZADO EN TIEMPO REAL Y BOTONES DE ACCIÓN */}
           <div className="p-4 bg-[#151515] border-t border-neutral-800 space-y-3">
             <div className="space-y-1 text-xs">
               <div className="flex justify-between text-neutral-400">
@@ -1050,8 +1319,41 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
               </div>
             )}
 
-            {/* BOTONES DE ACCIÓN: COMANDA Y COBRAR EN BATCH */}
-            <div className="grid grid-cols-2 gap-2 pt-1">
+            {/* OPCIONES DE IMPRESIÓN TÉRMICA 80MM */}
+            <div className="space-y-2">
+              <label className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-[#222222] border border-neutral-800 cursor-pointer select-none">
+                <span className="text-[11px] font-medium text-neutral-300 flex items-center gap-1.5">
+                  <Printer className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                  <span>Imprimir ticket (80mm) al cobrar</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={printOnCheckout}
+                  onChange={(e) => setPrintOnCheckout(e.target.checked)}
+                  className="w-4 h-4 rounded border-neutral-700 bg-[#151515] accent-orange-600 cursor-pointer"
+                />
+              </label>
+
+              <button
+                type="button"
+                disabled={(cart.length === 0 && !lastPaidReceipt) || isProcessingPayment || isSendingComanda}
+                onClick={handlePrintThermalTicket}
+                className="w-full py-2 px-3 rounded-lg bg-[#222222] hover:bg-neutral-800 active:scale-95 disabled:opacity-40 disabled:pointer-events-none text-neutral-200 hover:text-white font-semibold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer border border-neutral-800"
+                title="Imprimir ticket o pre-cuenta en formato térmico 80mm"
+              >
+                <Printer className="w-3.5 h-3.5 text-orange-500" />
+                <span>
+                  {cart.length > 0
+                    ? 'Imprimir Ticket / Pre-cuenta'
+                    : lastPaidReceipt
+                    ? `Reimprimir Último Ticket (${lastPaidReceipt.mesa})`
+                    : 'Imprimir Ticket / Pre-cuenta'}
+                </span>
+              </button>
+            </div>
+
+            {/* BOTONES DE ACCIÓN: COMANDA Y COBRAR */}
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 disabled={cart.length === 0 || isProcessingPayment || isSendingComanda}
@@ -1466,6 +1768,238 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
         </div>
       )}
 
+      {/* MODAL PROPIO PARA CREAR / RENOMBRAR MESA (SIN WINDOW.PROMPT) */}
+      {showTableModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setShowTableModal(false)}
+        >
+          <div
+            className="bg-[#222222] border border-neutral-800 rounded-xl p-5 w-full max-w-sm shadow-2xl relative text-neutral-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-800 mb-4">
+              <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                {tableModalMode === 'add' ? (
+                  <>
+                    <Plus className="w-4 h-4 text-orange-500" />
+                    <span>Nueva Mesa / Cuenta</span>
+                  </>
+                ) : (
+                  <>
+                    <Pencil className="w-3.5 h-3.5 text-orange-500" />
+                    <span>Renombrar Mesa</span>
+                  </>
+                )}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowTableModal(false)}
+                className="text-neutral-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitTableModal} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-neutral-400 mb-1.5">
+                  Nombre de la Mesa o Cuenta
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={tableNameInput}
+                  onChange={(e) => setTableNameInput(e.target.value)}
+                  placeholder="Ej. Mesa 4, Terraza, Barra 2"
+                  className="w-full px-3 py-2 bg-[#151515] border border-neutral-700 rounded-lg text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 transition-colors"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTableModal(false)}
+                  className="px-3.5 py-2 rounded-lg text-xs font-semibold text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={!tableNameInput.trim()}
+                  className="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-orange-600 hover:bg-orange-500 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer shadow-sm"
+                >
+                  Guardar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL TÁCTIL RÁPIDO: COCINA GOURMET / CAFETERÍA Y BARRA */}
+      {quickModalProduct && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setQuickModalProduct(null)}
+        >
+          <div
+            className="bg-[#222222] border border-neutral-800 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col max-h-[92vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Cabecera del Modal */}
+            <div className="p-4 sm:p-5 bg-[#151515] border-b border-neutral-800 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-[#222222] border border-neutral-800 flex items-center justify-center shrink-0">
+                  {quickModalProduct.isGourmetConfig ? (
+                    <ChefHat className="w-5 h-5 text-orange-500" />
+                  ) : (
+                    <Coffee className="w-5 h-5 text-orange-500" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-orange-500 block">
+                    {quickModalProduct.isGourmetConfig ? 'Cocina Gourmet' : 'Cafetería / Preparación'}
+                  </span>
+                  <h3 className="text-base font-bold text-white truncate">
+                    {quickModalProduct.name}
+                  </h3>
+                  <span className="text-xs font-mono font-bold text-neutral-400">
+                    {formatCurrency(quickModalProduct.price)}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuickModalProduct(null)}
+                className="p-2 rounded-lg bg-[#222222] hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors cursor-pointer shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmQuickCustomization} className="flex flex-col flex-1 overflow-hidden">
+              <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
+                {activeQuickGroups.map((group) => (
+                  <div key={group.key} className="space-y-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
+                      {group.key === 'alergias' && (
+                        <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                      )}
+                      {(group.key === 'tiempo' || group.key === 'entrega') && (
+                        <Clock className="w-3.5 h-3.5 text-amber-400" />
+                      )}
+                      <span>{group.label}</span>
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {group.chips.map((chip) => {
+                        const isSelected = selectedQuickTags.some(
+                          (t) => t.group === group.key && t.label === chip
+                        );
+                        const activeClass =
+                          group.key === 'alergias'
+                            ? 'bg-red-950/90 border-red-500 text-red-100'
+                            : group.key === 'tiempo' || group.key === 'entrega'
+                            ? 'bg-amber-950/90 border-amber-500 text-amber-100'
+                            : 'bg-orange-600 border-orange-500 text-white';
+
+                        return (
+                          <button
+                            key={chip}
+                            type="button"
+                            onClick={() => toggleQuickTag(group.key, chip)}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+                              isSelected
+                                ? activeClass
+                                : 'bg-[#151515] border-neutral-800 text-neutral-300 hover:border-neutral-600 hover:text-white'
+                            }`}
+                          >
+                            {isSelected && group.key === 'alergias' && (
+                              <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                            )}
+                            {isSelected && (group.key === 'tiempo' || group.key === 'entrega') && (
+                              <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            )}
+                            {isSelected &&
+                              group.key !== 'alergias' &&
+                              group.key !== 'tiempo' &&
+                              group.key !== 'entrega' && (
+                                <Check className="w-3.5 h-3.5 text-white shrink-0" />
+                              )}
+                            <span>{chip}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Nota corta opcional */}
+                <div className="pt-2 border-t border-neutral-800/80 space-y-1.5">
+                  <label className="text-xs font-semibold text-neutral-300 block">
+                    Nota corta (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={quickItemNote}
+                    onChange={(e) => setQuickItemNote(e.target.value)}
+                    placeholder={
+                      quickModalProduct.isGourmetConfig
+                        ? 'Ej: Salsa aparte, sin sal, plato bien caliente...'
+                        : 'Ej: Poco hielo, bien espumoso, sin azúcar...'
+                    }
+                    className="w-full px-3.5 py-2.5 bg-[#151515] border border-neutral-800 rounded-xl text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+              </div>
+
+              {/* Pie del Modal: Cantidad + Confirmar */}
+              <div className="p-4 bg-[#151515] border-t border-neutral-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="flex items-center justify-between sm:justify-start gap-2 bg-[#222222] border border-neutral-800 rounded-xl px-2.5 py-1.5">
+                  <span className="text-[11px] text-neutral-400 font-semibold mr-1">Cant.:</span>
+                  <button
+                    type="button"
+                    onClick={() => setQuickQuantity((q) => Math.max(1, q - 1))}
+                    className="w-8 h-8 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-white flex items-center justify-center cursor-pointer active:scale-95"
+                  >
+                    <Minus className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="w-7 text-center font-mono font-bold text-sm text-white">
+                    {quickQuantity}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setQuickQuantity((q) => q + 1)}
+                    className="w-8 h-8 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-orange-400 flex items-center justify-center cursor-pointer active:scale-95"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setQuickModalProduct(null)}
+                    className="py-2.5 px-4 rounded-xl bg-[#222222] hover:bg-neutral-800 text-neutral-300 text-xs font-semibold cursor-pointer transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 sm:flex-initial py-2.5 px-5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>
+                      Agregar ({formatCurrency((Number(quickModalProduct.price) || 0) * quickQuantity)})
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* TOAST DE COMANDA REGISTRADA CON ÉXITO / ENVIADO A COCINA */}
       {successToast && (
         <div className="fixed bottom-5 right-5 z-50 animate-in fade-in">
@@ -1483,6 +2017,129 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
         </div>
       )}
     </div>
+
+    {/* ================================================================= */}
+    {/* PLANTILLA DE IMPRESIÓN TÉRMICA 80MM (ALTO CONTRASTE BLANCO/NEGRO) */}
+    {/* ================================================================= */}
+    <div
+      id="thermal-receipt-80mm"
+      className="hidden print:block bg-white text-black font-mono"
+    >
+      <div className="text-center pb-2 border-b border-dashed border-black">
+        <div className="text-base font-extrabold tracking-wide uppercase">
+          GASTROPOS — RESTAURANT & BAR
+        </div>
+        <div className="text-[11px] font-bold uppercase tracking-wider mt-0.5">
+          {receiptToPrint.tipo}
+        </div>
+      </div>
+
+      <div className="py-2 border-b border-dashed border-black text-[11px] space-y-0.5">
+        <div className="flex justify-between">
+          <span className="font-bold">MESA / CUENTA:</span>
+          <span className="font-bold uppercase">{receiptToPrint.mesa}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>FECHA Y HORA:</span>
+          <span>{receiptToPrint.fecha}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>ATENDIÓ:</span>
+          <span>{receiptToPrint.cajero}</span>
+        </div>
+      </div>
+
+      <div className="py-1.5 border-b border-dashed border-black flex justify-between text-[10px] font-bold uppercase">
+        <span>CANT. DESCRIPCIÓN</span>
+        <span>IMPORTE</span>
+      </div>
+
+      <div className="py-2 border-b border-dashed border-black space-y-2">
+        {(receiptToPrint.items || []).map((item, idx) => {
+          const tags = normalizeSelectedTags(item.selectedTags || []);
+          const allergyTags = tags.filter((t) => isAllergyTag(t));
+          const timingTags = tags.filter((t) => !isAllergyTag(t) && isTimingTag(t));
+          const otherTags = tags.filter((t) => !isAllergyTag(t) && !isTimingTag(t));
+
+          return (
+            <div key={`print-${item.id || idx}-${idx}`} className="text-[11px] leading-snug">
+              <div className="flex justify-between gap-2 font-bold">
+                <span>
+                  {item.quantity}x {item.name}
+                </span>
+                <span className="shrink-0">
+                  {formatCurrency((Number(item.price) || 0) * (Number(item.quantity) || 1))}
+                </span>
+              </div>
+
+              {(item.quantity || 1) > 1 && (
+                <div className="text-[10px] pl-3">
+                  ({item.quantity} u. x {formatCurrency(item.price)})
+                </div>
+              )}
+
+              {item.flavorDetail && (
+                <div className="text-[10px] font-bold pl-3">
+                  {item.flavorDetail}
+                </div>
+              )}
+
+              {allergyTags.length > 0 && (
+                <div className="text-[10px] font-extrabold uppercase pl-3 mt-0.5 border-l-2 border-black">
+                  !! RESTRICCIÓN: {allergyTags.map((t) => t.label).join(', ')} !!
+                </div>
+              )}
+
+              {timingTags.length > 0 && (
+                <div className="text-[10px] font-bold uppercase pl-3">
+                  [{timingTags.map((t) => t.label).join(' / ')}]
+                </div>
+              )}
+
+              {otherTags.length > 0 && (
+                <div className="text-[10px] pl-3">
+                  • {otherTags.map((t) => t.label).join(', ')}
+                </div>
+              )}
+
+              {item.itemNote && (
+                <div className="text-[10px] pl-3 italic">
+                  Nota: {item.itemNote}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {receiptToPrint.nota && (
+        <div className="py-1.5 border-b border-dashed border-black text-[10px]">
+          <span className="font-bold uppercase">NOTA GENERAL: </span>
+          <span>{receiptToPrint.nota}</span>
+        </div>
+      )}
+
+      <div className="py-2 border-b border-dashed border-black space-y-1 text-[11px]">
+        <div className="flex justify-between">
+          <span>SUBTOTAL ({receiptToPrint.totalItemsCount} ÍTEMS):</span>
+          <span>{formatCurrency(receiptToPrint.total)}</span>
+        </div>
+        <div className="flex justify-between text-[10px]">
+          <span>IVA (10% INCLUIDO):</span>
+          <span>{formatCurrency(receiptToPrint.taxAmount)}</span>
+        </div>
+        <div className="flex justify-between text-sm font-extrabold pt-1 border-t border-black">
+          <span>TOTAL A PAGAR:</span>
+          <span>{formatCurrency(receiptToPrint.total)}</span>
+        </div>
+      </div>
+
+      <div className="pt-2.5 text-center text-[10px] space-y-0.5">
+        <div className="font-bold uppercase">Documento no válido como factura legal</div>
+        <div>¡Gracias por su preferencia!</div>
+      </div>
+    </div>
+    </>
   );
 };
 
