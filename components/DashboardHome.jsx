@@ -129,7 +129,7 @@ export const DashboardHome = () => {
       setCopiedKey(key);
       setTimeout(() => {
         setCopiedKey((current) => (current === key ? null : current));
-      }, 3000);
+      }, 2000);
     } catch (err) {
       console.warn('Error al copiar enlace:', err);
     }
@@ -274,200 +274,116 @@ export const DashboardHome = () => {
 
   const isLoading = isLoadingSales || isLoadingComandas;
 
+  const stations = [
+    {
+      key: 'pos',
+      title: 'Salón / Mozos (POS)',
+      subtitle: 'Toma de pedidos y caja',
+      icon: Tablet,
+      route: '/pos-terminal',
+      url: posTerminalUrl,
+      pendingCount: 0
+    },
+    {
+      key: 'cocina',
+      title: 'Cocina',
+      subtitle: 'Platos y comandas en vivo',
+      icon: ChefHat,
+      route: '/cocina',
+      url: cocinaUrl,
+      pendingCount: metrics.cocinaComandasCount
+    },
+    {
+      key: 'barra',
+      title: 'Barra',
+      subtitle: 'Bebidas y cafetería',
+      icon: Coffee,
+      route: '/cocina?estacion=bebidas',
+      url: barraUrl,
+      pendingCount: metrics.barraComandasCount
+    }
+  ];
+
   return (
     <div className="space-y-6">
-      {/* 1. HERO CALL-TO-ACTION DEL PROPIETARIO: POS, COCINA Y BARRA */}
-      <div className="bg-[#222222] border border-neutral-800 rounded-2xl p-6 sm:p-7 shadow-sm space-y-5">
-        {/* Bloque Principal: Terminal de Mozos (POS) */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-          <div className="max-w-xl space-y-1.5">
-            <span className="text-xs font-semibold uppercase tracking-wider text-orange-500">
-              Terminales Operativas del Local
-            </span>
-            <h1 className="text-2xl font-bold text-white tracking-tight">
-              Control de Salón, Cocina y Barra
-            </h1>
-            <p className="text-neutral-400 text-xs sm:text-sm leading-relaxed">
-              Cada sector opera en su propia pantalla limpia sin menús administrativos. Abre cada vista o copia su enlace para las tablets y celulares del equipo.
-            </p>
-          </div>
-
-          {/* BOTÓN PROMINENTE NARANJA MATE + COPIAR LINK DEL POS */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => navigate('/pos-terminal')}
-              className="py-3 px-5 bg-orange-600 hover:bg-orange-500 text-white font-semibold text-xs sm:text-sm uppercase tracking-wider rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm group active:scale-95"
-            >
-              <Tablet className="w-4 h-4 text-white" />
-              <span>Abrir Terminal de Mozos (POS)</span>
-              <ArrowUpRight className="w-4 h-4 opacity-75 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleCopyUrl('pos', posTerminalUrl)}
-              className={`py-3 px-4 rounded-xl text-xs font-semibold uppercase tracking-wider transition-colors flex items-center justify-center gap-2 border cursor-pointer active:scale-95 ${
-                copiedKey === 'pos'
-                  ? 'bg-neutral-800 border-orange-500 text-orange-400'
-                  : 'bg-[#151515] hover:bg-neutral-800 border-neutral-800 text-neutral-300 hover:text-white'
-              }`}
-            >
-              {copiedKey === 'pos' ? (
-                <>
-                  <Check className="w-4 h-4 text-orange-500" />
-                  <span>¡Copiado!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-4 h-4 text-neutral-400" />
-                  <span>Copiar Link del POS</span>
-                </>
-              )}
-            </button>
-          </div>
+      {/* 1. CONTROL COMPACTO DE SALÓN, COCINA Y BARRA */}
+      <div className="bg-[#222222] border border-neutral-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className="text-base sm:text-lg font-bold text-white tracking-tight">
+            Control de Salón, Cocina y Barra
+          </h1>
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-orange-500">
+            Pantallas Operativas
+          </span>
         </div>
 
-        {/* Accesos Rápidos para Pantallas de Cocina y Barra */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-1">
-          {/* Tarjeta Cocina */}
-          <div className="bg-[#151515] border border-neutral-800 rounded-xl p-4 flex flex-col justify-between gap-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-[#222222] border border-neutral-800 flex items-center justify-center shrink-0">
-                  <ChefHat className="w-5 h-5 text-orange-500" />
-                </div>
-                <div>
-                  <h2 className="text-sm font-bold text-white">Pantalla de Cocina</h2>
-                  <p className="text-[11px] text-neutral-400">
-                    Solo platos de comida, sabores, alergias y alerta sonora.
-                  </p>
-                </div>
-              </div>
-              {metrics.cocinaComandasCount > 0 && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-600/20 text-orange-400 border border-orange-600/40 shrink-0">
-                  {metrics.cocinaComandasCount} {metrics.cocinaComandasCount === 1 ? 'pendiente' : 'pendientes'}
-                </span>
-              )}
-            </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {stations.map((station) => {
+            const Icon = station.icon;
+            const isCopied = copiedKey === station.key;
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <button
-                type="button"
-                onClick={() => navigate('/cocina')}
-                className="flex-1 py-2.5 px-3.5 bg-orange-600 hover:bg-orange-500 text-white font-semibold text-xs uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+            return (
+              <div
+                key={station.key}
+                className="bg-[#151515] border border-neutral-800 rounded-xl p-3.5 flex flex-col justify-between gap-3"
               >
-                <ChefHat className="w-3.5 h-3.5" />
-                <span>Abrir Cocina</span>
-                <ArrowUpRight className="w-3.5 h-3.5 opacity-80" />
-              </button>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-lg bg-[#222222] border border-neutral-800 flex items-center justify-center shrink-0">
+                      <Icon className="w-4 h-4 text-orange-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="text-sm font-bold text-white truncate">
+                        {station.title}
+                      </h2>
+                      <p className="text-[11px] text-neutral-400 truncate">
+                        {station.subtitle}
+                      </p>
+                    </div>
+                  </div>
 
-              <button
-                type="button"
-                onClick={() => handleCopyUrl('cocina', cocinaUrl)}
-                className={`py-2.5 px-3.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors flex items-center justify-center gap-1.5 border cursor-pointer active:scale-95 ${
-                  copiedKey === 'cocina'
-                    ? 'bg-neutral-800 border-orange-500 text-orange-400'
-                    : 'bg-[#222222] hover:bg-neutral-800 border-neutral-800 text-neutral-300 hover:text-white'
-                }`}
-              >
-                {copiedKey === 'cocina' ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-orange-500" />
-                    <span>¡Copiado!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5 text-neutral-400" />
-                    <span>Copiar Link Cocina</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* Tarjeta Barra */}
-          <div className="bg-[#151515] border border-neutral-800 rounded-xl p-4 flex flex-col justify-between gap-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-[#222222] border border-neutral-800 flex items-center justify-center shrink-0">
-                  <Coffee className="w-5 h-5 text-orange-500" />
+                  {station.pendingCount > 0 && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-600/20 text-orange-400 border border-orange-600/40 shrink-0">
+                      {station.pendingCount} {station.pendingCount === 1 ? 'orden' : 'órdenes'}
+                    </span>
+                  )}
                 </div>
-                <div>
-                  <h2 className="text-sm font-bold text-white">Pantalla de Barra y Cafetería</h2>
-                  <p className="text-[11px] text-neutral-400">
-                    Filtrada automáticamente en bebidas, café y preparación de barra.
-                  </p>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => navigate(station.route)}
+                    className="flex-1 py-2 px-3 bg-orange-600 hover:bg-orange-500 text-white font-semibold text-xs uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
+                  >
+                    <span>Abrir</span>
+                    <ArrowUpRight className="w-3.5 h-3.5 opacity-85" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleCopyUrl(station.key, station.url)}
+                    className={`shrink-0 py-2 px-3 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 border cursor-pointer active:scale-95 ${
+                      isCopied
+                        ? 'bg-neutral-800 border-orange-500 text-orange-400'
+                        : 'bg-[#222222] hover:bg-neutral-800 border-neutral-800 text-neutral-300 hover:text-white'
+                    }`}
+                  >
+                    {isCopied ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-orange-500" />
+                        <span>¡Copiado!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-neutral-400" />
+                        <span>Link</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
-              {metrics.barraComandasCount > 0 && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-600/20 text-orange-400 border border-orange-600/40 shrink-0">
-                  {metrics.barraComandasCount} {metrics.barraComandasCount === 1 ? 'pendiente' : 'pendientes'}
-                </span>
-              )}
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <button
-                type="button"
-                onClick={() => navigate('/cocina?estacion=bebidas')}
-                className="flex-1 py-2.5 px-3.5 bg-orange-600 hover:bg-orange-500 text-white font-semibold text-xs uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
-              >
-                <Coffee className="w-3.5 h-3.5" />
-                <span>Abrir Barra</span>
-                <ArrowUpRight className="w-3.5 h-3.5 opacity-80" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleCopyUrl('barra', barraUrl)}
-                className={`py-2.5 px-3.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors flex items-center justify-center gap-1.5 border cursor-pointer active:scale-95 ${
-                  copiedKey === 'barra'
-                    ? 'bg-neutral-800 border-orange-500 text-orange-400'
-                    : 'bg-[#222222] hover:bg-neutral-800 border-neutral-800 text-neutral-300 hover:text-white'
-                }`}
-              >
-                {copiedKey === 'barra' ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-orange-500" />
-                    <span>¡Copiado!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5 text-neutral-400" />
-                    <span>Copiar Link Barra</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Enlaces completos para compartir en tablets y celulares */}
-        <div className="pt-4 border-t border-neutral-800/80 space-y-2 text-xs">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
-            <div className="flex items-center gap-2 bg-[#151515] px-3 py-2 rounded-lg border border-neutral-800 min-w-0">
-              <span className="text-neutral-500 font-semibold shrink-0">POS:</span>
-              <code className="text-orange-400 font-mono text-[11px] truncate">
-                {posTerminalUrl}
-              </code>
-            </div>
-            <div className="flex items-center gap-2 bg-[#151515] px-3 py-2 rounded-lg border border-neutral-800 min-w-0">
-              <span className="text-neutral-500 font-semibold shrink-0">Cocina:</span>
-              <code className="text-orange-400 font-mono text-[11px] truncate">
-                {cocinaUrl}
-              </code>
-            </div>
-            <div className="flex items-center gap-2 bg-[#151515] px-3 py-2 rounded-lg border border-neutral-800 min-w-0">
-              <span className="text-neutral-500 font-semibold shrink-0">Barra:</span>
-              <code className="text-orange-400 font-mono text-[11px] truncate">
-                {barraUrl}
-              </code>
-            </div>
-          </div>
-          <p className="text-[11px] text-neutral-500">
-            Abre cada enlace en la tablet o celular correspondiente conectado al Wi-Fi del local (salón, cocina y barra).
-          </p>
+            );
+          })}
         </div>
       </div>
 
