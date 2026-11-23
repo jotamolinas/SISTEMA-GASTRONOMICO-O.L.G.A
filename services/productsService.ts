@@ -16,6 +16,8 @@ import {
   Unsubscribe
 } from 'firebase/firestore';
 
+import { resolveAutoProductImage } from './productImageService';
+
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
@@ -95,6 +97,9 @@ export interface ProductItem {
   gourmetOptions?: GourmetOptionsConfig | null;
   isCafeConfig?: boolean;
   cafeOptions?: CafeOptionsConfig | null;
+  imageUrl?: string;
+  sourceImageUrl?: string;
+  isIllustrativeImage?: boolean;
   createdAt?: any;
   updatedAt?: any;
 }
@@ -209,8 +214,14 @@ export async function seedInitialProductsIfEmpty(): Promise<boolean> {
       const batch = writeBatch(db);
       for (const item of INITIAL_GASTRO_PRODUCTS) {
         const newDocRef = doc(colRef);
+        const autoImg = resolveAutoProductImage(item.name, item.category, item.type || '');
         batch.set(newDocRef, {
           ...item,
+          imageUrl: item.imageUrl || autoImg.imageUrl,
+          isIllustrativeImage:
+            typeof item.isIllustrativeImage === 'boolean'
+              ? item.isIllustrativeImage
+              : autoImg.isIllustrativeImage,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
@@ -270,6 +281,9 @@ export function subscribeToProducts(
           gourmetOptions: data.gourmetOptions || null,
           isCafeConfig: Boolean(data.isCafeConfig),
           cafeOptions: data.cafeOptions || null,
+          imageUrl: typeof data.imageUrl === 'string' ? data.imageUrl : '',
+          sourceImageUrl: typeof data.sourceImageUrl === 'string' ? data.sourceImageUrl : '',
+          isIllustrativeImage: Boolean(data.isIllustrativeImage),
           createdAt: data.createdAt,
           updatedAt: data.updatedAt
         });
@@ -320,6 +334,9 @@ export async function getProductsOnce(): Promise<ProductItem[]> {
         gourmetOptions: data.gourmetOptions || null,
         isCafeConfig: Boolean(data.isCafeConfig),
         cafeOptions: data.cafeOptions || null,
+        imageUrl: typeof data.imageUrl === 'string' ? data.imageUrl : '',
+        sourceImageUrl: typeof data.sourceImageUrl === 'string' ? data.sourceImageUrl : '',
+        isIllustrativeImage: Boolean(data.isIllustrativeImage),
         createdAt: data.createdAt,
         updatedAt: data.updatedAt
       });
@@ -350,26 +367,42 @@ export async function createProductInFirestore(productData: {
   gourmetOptions?: GourmetOptionsConfig | null;
   isCafeConfig?: boolean;
   cafeOptions?: CafeOptionsConfig | null;
+  imageUrl?: string;
+  sourceImageUrl?: string;
+  isIllustrativeImage?: boolean;
 }): Promise<string> {
   const path = 'productos';
   try {
     const colRef = collection(db, path);
+    const trimmedName = productData.name.trim();
+    const category = productData.category || 'Comidas';
+    const hasCustomImage =
+      typeof productData.imageUrl === 'string' && productData.imageUrl.trim().length > 0;
+    const autoImg = hasCustomImage
+      ? null
+      : resolveAutoProductImage(trimmedName, category);
+
     const docRef = await addDoc(colRef, {
-      name: productData.name.trim(),
-      category: productData.category || 'Comidas',
+      name: trimmedName,
+      category,
       price: Number(productData.price) || 0,
       stock: Number(productData.stock) || 0,
       boxSize: Number(productData.boxSize) || 24,
       unit: productData.unit || 'unidades',
       barcode: (productData.barcode || '').trim(),
-      icon: productData.icon || (productData.category === 'Bebidas' ? 'beer' : 'burger'),
+      icon: productData.icon || (category === 'Bebidas' ? 'beer' : 'burger'),
       badge: productData.badge || '',
       minAlert: Number(productData.minAlert) || 12,
-      type: productData.category === 'Bebidas' ? 'beer' : 'meat',
+      type: category === 'Bebidas' ? 'beer' : 'meat',
       isGourmetConfig: Boolean(productData.isGourmetConfig),
       gourmetOptions: productData.gourmetOptions || null,
       isCafeConfig: Boolean(productData.isCafeConfig),
       cafeOptions: productData.cafeOptions || null,
+      imageUrl: hasCustomImage ? productData.imageUrl!.trim() : autoImg!.imageUrl,
+      sourceImageUrl: typeof productData.sourceImageUrl === 'string' ? productData.sourceImageUrl.trim() : '',
+      isIllustrativeImage: hasCustomImage
+        ? Boolean(productData.isIllustrativeImage)
+        : autoImg!.isIllustrativeImage,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
@@ -399,6 +432,9 @@ export async function updateProductInFirestore(
     gourmetOptions: GourmetOptionsConfig | null;
     isCafeConfig: boolean;
     cafeOptions: CafeOptionsConfig | null;
+    imageUrl: string;
+    sourceImageUrl: string;
+    isIllustrativeImage: boolean;
   }>
 ): Promise<void> {
   const path = `productos/${productId}`;

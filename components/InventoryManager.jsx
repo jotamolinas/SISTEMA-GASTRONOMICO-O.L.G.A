@@ -22,9 +22,20 @@ import {
   ChefHat,
   Check,
   AlertTriangle,
-  Clock
+  Clock,
+  Upload,
+  Image as ImageIcon,
+  Search,
+  Wand2
 } from 'lucide-react';
 import { db } from '../services/firebase';
+import {
+  compressProductImage,
+  uploadCompressedProductImage,
+  resolveAutoProductImage,
+  getProductDisplayImage,
+  searchUniqueProductImage
+} from '../services/productImageService';
 import { 
   collection, 
   addDoc, 
@@ -103,6 +114,23 @@ const PRESET_FLAVORS = [
   'Champiñones'
 ];
 
+const PASTA_PRESET_FLAVORS = [
+  'Carbonara',
+  'Sea Food',
+  'Bolognesa',
+  'Pesto',
+  '4 Quesos',
+  'Alfredo',
+  'Mariscos',
+  'Pomodoro',
+  'Filetto'
+];
+
+const isPastaProductName = (name = '') =>
+  /(pasta|spaghetti|espagueti|tallarin|fettuccine|fetuccini|linguine|linguini|penne|raviol|noqui|ñoqui|gnocchi|lasagna|lasaña|canelon|sorrentino|fusilli|tagliatelle)/i.test(
+    name
+  );
+
 const DEFAULT_BURGER_SIZES = [
   { label: 'Simple', extraPrice: '0' },
   { label: 'Doble', extraPrice: '10000' },
@@ -127,7 +155,7 @@ const DEFAULT_BURGER_REMOVALS = [
   'Sin Queso'
 ];
 
-export const InventoryManager = () => {
+export const InventoryManager = ({ onOpenProModal }) => {
   // ESTADO DINÁMICO DESDE BASE DE DATOS
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -162,6 +190,19 @@ export const InventoryManager = () => {
   const [newFlavorInput, setNewFlavorInput] = useState('');
   const [extraGourmetChip, setExtraGourmetChip] = useState('');
   const [extraCafeChip, setExtraCafeChip] = useState('');
+
+  // Estado de Foto del Producto (subida comprimida, búsqueda automática única o respaldo local)
+  const [customImagePreview, setCustomImagePreview] = useState('');
+  const [pendingImageBlob, setPendingImageBlob] = useState(null);
+  const [imageSourceType, setImageSourceType] = useState('none'); // 'none' | 'uploaded' | 'search'
+  const [selectedSourceUrl, setSelectedSourceUrl] = useState('');
+  const [skippedSearchUrls, setSkippedSearchUrls] = useState([]);
+  const [isCompressingImage, setIsCompressingImage] = useState(false);
+  const [isSearchingImage, setIsSearchingImage] = useState(false);
+  const [imageError, setImageError] = useState('');
+  const [imageStatusMessage, setImageStatusMessage] = useState('');
+  const galleryInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
 
   // Estado del Escáner de Cámara
   const [isScannerActive, setIsScannerActive] = useState(false);
@@ -298,6 +339,15 @@ export const InventoryManager = () => {
     setNewFlavorInput('');
     setExtraGourmetChip('');
     setExtraCafeChip('');
+    setCustomImagePreview('');
+    setPendingImageBlob(null);
+    setImageSourceType('none');
+    setSelectedSourceUrl('');
+    setSkippedSearchUrls([]);
+    setIsCompressingImage(false);
+    setIsSearchingImage(false);
+    setImageError('');
+    setImageStatusMessage('');
     setScannerError('');
     setAutoCompleteToast('');
     setModalOpen(true);
@@ -353,9 +403,142 @@ export const InventoryManager = () => {
     setNewFlavorInput('');
     setExtraGourmetChip('');
     setExtraCafeChip('');
+    const existingUrl = typeof item.imageUrl === 'string' ? item.imageUrl.trim() : '';
+    const existingSourceUrl =
+      typeof item.sourceImageUrl === 'string' ? item.sourceImageUrl.trim() : '';
+    const isRealExternalOrUploaded =
+      Boolean(existingUrl) && !item.isIllustrativeImage && !existingUrl.startsWith('/catalog/');
+
+    if (isRealExternalOrUploaded) {
+      setCustomImagePreview(existingUrl);
+      setImageSourceType(existingSourceUrl ? 'search' : 'uploaded');
+      setSelectedSourceUrl(existingSourceUrl);
+      setSkippedSearchUrls(existingSourceUrl ? [existingSourceUrl] : []);
+    } else {
+      setCustomImagePreview('');
+      setImageSourceType('none');
+      setSelectedSourceUrl('');
+      setSkippedSearchUrls([]);
+    }
+    setPendingImageBlob(null);
+    setIsCompressingImage(false);
+    setIsSearchingImage(false);
+    setImageError('');
+    setImageStatusMessage('');
     setScannerError('');
     setAutoCompleteToast('');
     setModalOpen(true);
+  };
+
+  // Reúne URLs ya usadas en otros productos para evitar imágenes repetidas
+  const getUsedCatalogUrls = (excludeId = null) => {
+    const urls = [];
+    for (const prod of items) {
+      if (excludeId && prod.id === excludeId) continue;
+      if (typeof prod.imageUrl === 'string' && prod.imageUrl.trim()) {
+        urls.push(prod.imageUrl.trim());
+      }
+      if (typeof prod.sourceImageUrl === 'string' && prod.sourceImageUrl.trim()) {
+        urls.push(prod.sourceImageUrl.trim());
+      }
+    }
+    return urls;
+  };
+
+  // VÍA A — Búsqueda explícita de 1 foto única (evita repetidos y convierte a .webp)
+  const handleSearchProductPhoto = async () => {
+    const cleanName = formData.name.trim();
+    if (!cleanName) {
+      setImageError('Escribe el nombre del producto primero para buscar su foto.');
+      return;
+    }
+
+    setImageError('');
+    setImageStatusMessage('');
+    setIsSearchingImage(true);
+
+    const nextSkipped = [...skippedSearchUrls];
+    if (selectedSourceUrl && !nextSkipped.includes(selectedSourceUrl)) {
+      nextSkipped.push(selectedSourceUrl);
+    }
+    if (
+      customImagePreview &&
+      !customImagePreview.startsWith('data:') &&
+      !nextSkipped.includes(customImagePreview)
+    ) {
+      nextSkipped.push(customImagePreview);
+    }
+
+    try {
+      const result = await searchUniqueProductImage({
+        name: cleanName,
+        category: formData.category,
+        flavors: formData.hasFlavors ? formData.flavors : [],
+        usedUrls: getUsedCatalogUrls(editingItem?.id),
+        skippedUrls: nextSkipped
+      });
+
+      if (result.fromSearch) {
+        setCustomImagePreview(result.previewUrl);
+        setPendingImageBlob(result.compressedBlob);
+        setSelectedSourceUrl(result.sourceUrl);
+        setImageSourceType('search');
+        setSkippedSearchUrls(
+          result.sourceUrl ? [...nextSkipped, result.sourceUrl] : nextSkipped
+        );
+        setImageStatusMessage(
+          result.compressedBlob
+            ? 'Foto real encontrada y optimizada en WebP.'
+            : 'Foto real seleccionada sin duplicados.'
+        );
+      } else {
+        setCustomImagePreview('');
+        setPendingImageBlob(null);
+        setSelectedSourceUrl('');
+        setImageSourceType('none');
+        setImageStatusMessage(
+          result.statusReason === 'missing_config'
+            ? 'Imagen sugerida asignada según el catálogo del local.'
+            : 'No se encontraron fotos nuevas para este nombre; usando imagen sugerida.'
+        );
+      }
+    } catch {
+      setImageError('No se pudo completar la búsqueda de foto. Intenta nuevamente.');
+    } finally {
+      setIsSearchingImage(false);
+    }
+  };
+
+  // Selección y compresión automática de foto en el navegador (máx 800px, calidad ~0.8)
+  const handleProductImageSelect = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setImageError('');
+    setImageStatusMessage('');
+    setIsCompressingImage(true);
+    try {
+      const compressed = await compressProductImage(file, 800, 0.8);
+      setPendingImageBlob(compressed.blob);
+      setCustomImagePreview(compressed.previewUrl);
+      setImageSourceType('uploaded');
+      setSelectedSourceUrl('');
+      setImageStatusMessage('Foto propia optimizada en WebP (máx. 800px).');
+    } catch (err) {
+      setImageError(err?.message || 'No se pudo procesar la imagen seleccionada.');
+    } finally {
+      setIsCompressingImage(false);
+    }
+  };
+
+  const handleRemoveCustomImage = () => {
+    setCustomImagePreview('');
+    setPendingImageBlob(null);
+    setImageSourceType('none');
+    setSelectedSourceUrl('');
+    setImageError('');
+    setImageStatusMessage('');
   };
 
   // Alternar chip en gourmetOptions o cafeOptions con un toque
@@ -490,10 +673,14 @@ export const InventoryManager = () => {
     });
   };
 
+  const activePresetFlavors = isPastaProductName(formData.name)
+    ? PASTA_PRESET_FLAVORS
+    : PRESET_FLAVORS;
+
   const handleSelectAllPresetFlavors = () => {
     setFormData((prev) => {
       const merged = [...prev.flavors];
-      for (const preset of PRESET_FLAVORS) {
+      for (const preset of activePresetFlavors) {
         if (!merged.some((f) => f.toLowerCase() === preset.toLowerCase())) {
           merged.push(preset);
         }
@@ -696,6 +883,59 @@ export const InventoryManager = () => {
       const isGourmetEnabled = isComidas && Boolean(formData.isGourmetConfig);
       const isCafeEnabled = !isComidas && Boolean(formData.isCafeConfig);
 
+      let finalImageUrl = '';
+      let finalSourceUrl = '';
+      let finalIsIllustrative = false;
+      const usedCatalogUrls = getUsedCatalogUrls(editingItem?.id);
+
+      if (pendingImageBlob) {
+        finalImageUrl = await uploadCompressedProductImage(
+          pendingImageBlob,
+          formData.name.trim(),
+          customImagePreview
+        );
+        finalSourceUrl = selectedSourceUrl || '';
+        finalIsIllustrative = false;
+      } else if (customImagePreview) {
+        finalImageUrl = customImagePreview;
+        finalSourceUrl = selectedSourceUrl || '';
+        finalIsIllustrative = false;
+      } else {
+        // VÍA A automática al guardar sin foto subida: busca 1 imagen real no repetida
+        const searchResult = await searchUniqueProductImage({
+          name: formData.name.trim(),
+          category: formData.category,
+          flavors: flavorsList,
+          usedUrls: usedCatalogUrls,
+          skippedUrls: []
+        });
+
+        if (searchResult.fromSearch) {
+          if (searchResult.compressedBlob) {
+            finalImageUrl = await uploadCompressedProductImage(
+              searchResult.compressedBlob,
+              formData.name.trim(),
+              searchResult.previewUrl
+            );
+          } else {
+            finalImageUrl = searchResult.imageUrl;
+          }
+          finalSourceUrl = searchResult.sourceUrl;
+          finalIsIllustrative = false;
+        } else {
+          const autoMatch = resolveAutoProductImage(
+            formData.name.trim(),
+            formData.category,
+            '',
+            flavorsList,
+            usedCatalogUrls
+          );
+          finalImageUrl = autoMatch.imageUrl;
+          finalSourceUrl = '';
+          finalIsIllustrative = autoMatch.isIllustrativeImage;
+        }
+      }
+
       const payload = {
         name: formData.name.trim(),
         category: formData.category,
@@ -714,6 +954,9 @@ export const InventoryManager = () => {
         gourmetOptions: isGourmetEnabled ? formData.gourmetOptions : null,
         isCafeConfig: isCafeEnabled,
         cafeOptions: isCafeEnabled ? formData.cafeOptions : null,
+        imageUrl: finalImageUrl,
+        sourceImageUrl: finalSourceUrl,
+        isIllustrativeImage: finalIsIllustrative,
         updatedAt: serverTimestamp()
       };
 
@@ -793,7 +1036,7 @@ export const InventoryManager = () => {
       ) : items.length === 0 ? (
         <div className="bg-[#222222] border border-neutral-800 rounded-2xl p-12 text-center space-y-3">
           <Database className="w-10 h-10 text-neutral-600 mx-auto" />
-          <h3 className="text-base font-bold text-white">No hay productos en la base de datos</h3>
+          <h3 className="text-base font-bold text-white">Aún no hay productos en tu catálogo</h3>
           <p className="text-xs text-neutral-400 max-w-sm mx-auto">
             Comienza agregando tu primer producto o fardo de mercadería usando el botón superior.
           </p>
@@ -820,6 +1063,7 @@ export const InventoryManager = () => {
               : currentCount <= (item.minAlert || 12);
             const activeFlavorsCount =
               item.hasFlavors && Array.isArray(item.flavors) ? item.flavors.length : 0;
+            const displayImage = getProductDisplayImage(item);
 
             return (
               <div
@@ -830,11 +1074,30 @@ export const InventoryManager = () => {
                     : 'border-neutral-800/80 hover:border-neutral-700'
                 }`}
               >
-                {/* Encabezado del Producto + Acciones Minimalistas de Editar/Eliminar */}
+                {/* Encabezado del Producto + Miniatura + Acciones Minimalistas */}
                 <div className="flex items-start justify-between gap-3 mb-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-11 h-11 rounded-xl bg-[#151515] border border-neutral-800 flex items-center justify-center shrink-0">
-                      {getProductIcon(item.type, item.category, item)}
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-xl bg-[#151515] border border-neutral-800 overflow-hidden shrink-0 relative flex items-center justify-center">
+                      {displayImage.imageUrl ? (
+                        <img
+                          src={displayImage.imageUrl}
+                          alt={item.name}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        getProductIcon(item.type, item.category, item)
+                      )}
+                      {displayImage.isIllustrativeImage && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditModal(item)}
+                          title="Imagen ilustrativa — Toca para subir la foto real de tu plato"
+                          className="absolute inset-x-0 bottom-0 bg-black/75 hover:bg-orange-600/90 text-neutral-200 hover:text-white text-[9px] font-semibold tracking-wide text-center py-0.5 border-t border-neutral-700/60 transition-colors cursor-pointer"
+                        >
+                          Ilustrativa
+                        </button>
+                      )}
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -1178,6 +1441,162 @@ export const InventoryManager = () => {
                   className="w-full px-3 py-2 bg-[#151515] border border-neutral-800 rounded-lg text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500"
                 />
               </div>
+
+              {/* Foto del Producto (Subida comprimida, búsqueda única o respaldo automático) */}
+              {(() => {
+                const autoMatch = resolveAutoProductImage(
+                  formData.name,
+                  formData.category,
+                  '',
+                  formData.hasFlavors ? formData.flavors : [],
+                  getUsedCatalogUrls(editingItem?.id)
+                );
+                const previewSrc = customImagePreview || autoMatch.imageUrl;
+                const hasCustomOrSearchPhoto = Boolean(customImagePreview);
+                const isUploadedPhoto = hasCustomOrSearchPhoto && imageSourceType === 'uploaded';
+                const isSearchPhoto = hasCustomOrSearchPhoto && imageSourceType === 'search';
+                const isIllustrativePreview = !hasCustomOrSearchPhoto && autoMatch.isIllustrativeImage;
+                const isProcessingPhoto = isCompressingImage || isSearchingImage;
+
+                return (
+                  <div className="bg-[#151515] p-3.5 rounded-xl border border-neutral-800 space-y-2.5">
+                    <div className="flex items-start gap-3.5">
+                      <div className="w-20 h-20 rounded-xl bg-[#222222] border border-neutral-800 overflow-hidden shrink-0 relative flex items-center justify-center">
+                        {isProcessingPhoto ? (
+                          <RefreshCw className="w-5 h-5 text-orange-500 animate-spin" />
+                        ) : (
+                          <img
+                            src={previewSrc}
+                            alt={formData.name || 'Vista previa del producto'}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover"
+                          />
+                        )}
+                        <span
+                          className={`absolute inset-x-0 bottom-0 text-[9px] font-semibold text-center py-0.5 ${
+                            hasCustomOrSearchPhoto
+                              ? 'bg-orange-600/90 text-white'
+                              : isIllustrativePreview
+                              ? 'bg-black/75 text-neutral-200 border-t border-neutral-700/60'
+                              : 'bg-black/75 text-neutral-300 border-t border-neutral-700/60'
+                          }`}
+                        >
+                          {isUploadedPhoto
+                            ? 'Foto propia'
+                            : isSearchPhoto
+                            ? 'Foto asignada'
+                            : isIllustrativePreview
+                            ? 'Ilustrativa'
+                            : 'Referencia'}
+                        </span>
+                      </div>
+
+                      <div className="flex-1 min-w-0 space-y-2">
+                        <div>
+                          <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                            <ImageIcon className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                            <span>Foto del Producto</span>
+                          </span>
+                          <p className="text-[11px] text-neutral-400 mt-0.5 leading-snug">
+                            {imageStatusMessage
+                              ? imageStatusMessage
+                              : isUploadedPhoto
+                              ? 'Foto propia optimizada en WebP (máx. 800px).'
+                              : isSearchPhoto
+                              ? 'Foto real única asignada según el nombre del producto.'
+                              : isIllustrativePreview
+                              ? 'Al guardar sin foto, buscaremos 1 imagen acorde o puedes subir una propia.'
+                              : `${autoMatch.matchLabel} asignada automáticamente.`}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <input
+                            ref={galleryInputRef}
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleProductImageSelect(e)}
+                            className="hidden"
+                          />
+                          <input
+                            ref={cameraInputRef}
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            onChange={(e) => handleProductImageSelect(e)}
+                            className="hidden"
+                          />
+
+                          <button
+                            type="button"
+                            disabled={isProcessingPhoto}
+                            onClick={() => galleryInputRef.current?.click()}
+                            className="px-2.5 py-1.5 rounded-lg bg-[#222222] hover:bg-neutral-800 border border-neutral-700/70 text-[11px] font-semibold text-neutral-200 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            <Upload className="w-3 h-3 text-orange-500" />
+                            <span>{isUploadedPhoto ? 'Subir otra' : 'Galería'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={isProcessingPhoto}
+                            onClick={() => cameraInputRef.current?.click()}
+                            className="px-2.5 py-1.5 rounded-lg bg-[#222222] hover:bg-neutral-800 border border-neutral-700/70 text-[11px] font-semibold text-neutral-200 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            <Camera className="w-3 h-3 text-orange-500" />
+                            <span>Cámara</span>
+                          </button>
+
+                          {/* VÍA A: Botón explícito para buscar / rotar 1 foto única */}
+                          <button
+                            type="button"
+                            disabled={isProcessingPhoto}
+                            onClick={() => handleSearchProductPhoto()}
+                            className="px-2.5 py-1.5 rounded-lg bg-[#222222] hover:bg-neutral-800 border border-neutral-700/70 text-[11px] font-semibold text-orange-400 hover:text-orange-300 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            <Search className="w-3 h-3 text-orange-500" />
+                            <span>{isSearchPhoto ? 'Cambiar foto' : 'Buscar foto'}</span>
+                          </button>
+
+                          {hasCustomOrSearchPhoto && (
+                            <button
+                              type="button"
+                              disabled={isProcessingPhoto}
+                              onClick={() => handleRemoveCustomImage()}
+                              className="px-2.5 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-950/70 border border-red-900/50 text-[11px] font-semibold text-red-300 flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <X className="w-3 h-3" />
+                              <span>Quitar</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* VÍA B: Botón visual exclusivo Plan Pro al subir foto propia */}
+                        {isUploadedPhoto && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenProModal && onOpenProModal()}
+                            className="w-full sm:w-auto px-3 py-1.5 rounded-lg bg-orange-600/15 hover:bg-orange-600/25 border border-orange-500/50 text-[11px] font-semibold text-orange-300 hover:text-orange-200 flex items-center justify-center sm:justify-start gap-2 transition-colors cursor-pointer active:scale-95"
+                          >
+                            <Wand2 className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                            <span>Mejorar foto con IA</span>
+                            <span className="px-1.5 py-0.5 rounded bg-orange-600 text-white text-[9px] font-black uppercase tracking-wider leading-none">
+                              PRO
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {imageError && (
+                      <p className="text-[11px] text-red-400 flex items-center gap-1.5 pt-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        <span>{imageError}</span>
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* ===================================================== */}
               {/* BLOQUE EXCLUSIVO PARA BEBIDAS (CÓDIGO DE BARRAS/STOCK) */}
@@ -1527,7 +1946,7 @@ export const InventoryManager = () => {
 
                         {/* Grilla táctil de sabores predefinidos */}
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                          {PRESET_FLAVORS.map((flavor) => {
+                          {activePresetFlavors.map((flavor) => {
                             const isChecked = formData.flavors.some(
                               (f) => f.toLowerCase() === flavor.toLowerCase()
                             );
@@ -1551,7 +1970,7 @@ export const InventoryManager = () => {
                         {/* Sabores personalizados adicionales si existen */}
                         {formData.flavors.some(
                           (f) =>
-                            !PRESET_FLAVORS.some(
+                            !activePresetFlavors.some(
                               (p) => p.toLowerCase() === f.toLowerCase()
                             )
                         ) && (
@@ -1563,7 +1982,7 @@ export const InventoryManager = () => {
                               {formData.flavors
                                 .filter(
                                   (f) =>
-                                    !PRESET_FLAVORS.some(
+                                    !activePresetFlavors.some(
                                       (p) => p.toLowerCase() === f.toLowerCase()
                                     )
                                 )

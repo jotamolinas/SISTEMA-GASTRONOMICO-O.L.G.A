@@ -15,7 +15,10 @@
         "stock": { "type": "number" },
         "boxSize": { "type": "number" },
         "barcode": { "type": "string", "optional": true },
-        "unit": { "type": "string" }
+        "unit": { "type": "string" },
+        "imageUrl": { "type": "string", "optional": true },
+        "sourceImageUrl": { "type": "string", "optional": true },
+        "isIllustrativeImage": { "type": "boolean", "optional": true }
       }
     },
     {

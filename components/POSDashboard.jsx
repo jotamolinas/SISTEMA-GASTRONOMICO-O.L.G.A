@@ -12,6 +12,14 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 import { seedInitialProductsIfEmpty } from '../services/productsService';
+import {
+  getProductDisplayImage,
+  resolveAutoProductImage
+} from '../services/productImageService';
+import {
+  getCachedBusinessConfig,
+  subscribeBusinessConfig
+} from '../services/businessConfigService';
 import { 
   ArrowLeft,
   UtensilsCrossed, 
@@ -158,11 +166,13 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
   const [successToast, setSuccessToast] = useState(null);
   const [paymentError, setPaymentError] = useState('');
 
-  // Modal Selector de Sabores (Entera / Mitad y Mitad)
+  // Modal Selector de Sabores (Entera por sabor con cantidades rápidas / Mitad y Mitad)
   const [flavorModalProduct, setFlavorModalProduct] = useState(null);
   const [flavorMode, setFlavorMode] = useState('entera');
+  const [flavorQuantities, setFlavorQuantities] = useState({});
   const [selectedHalf1, setSelectedHalf1] = useState(null);
   const [selectedHalf2, setSelectedHalf2] = useState(null);
+  const [mitadQuantity, setMitadQuantity] = useState(1);
   const [flavorNote, setFlavorNote] = useState('');
 
   // Modal Configurador de Hamburguesa / Sándwich
@@ -178,10 +188,22 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
   const [quickItemNote, setQuickItemNote] = useState('');
   const [quickQuantity, setQuickQuantity] = useState(1);
 
-  // Estado para impresión térmica opcional 80mm
+  // Estado para impresión térmica opcional 80mm y configuración comercial del local
+  const [businessConfig, setBusinessConfig] = useState(() => getCachedBusinessConfig());
   const [printOnCheckout, setPrintOnCheckout] = useState(false);
   const [lastPaidReceipt, setLastPaidReceipt] = useState(null);
   const [activePrintReceipt, setActivePrintReceipt] = useState(null);
+
+  useEffect(() => {
+    const unsubscribe = subscribeBusinessConfig((config) => {
+      setBusinessConfig(config);
+    });
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, []);
 
   // Al cambiar de mesa, reinicia confirmaciones inline abiertas
   useEffect(() => {
@@ -560,8 +582,10 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
     ) {
       setFlavorModalProduct(product);
       setFlavorMode('entera');
+      setFlavorQuantities({});
       setSelectedHalf1(null);
       setSelectedHalf2(null);
+      setMitadQuantity(1);
       setFlavorNote('');
       return;
     }
@@ -666,10 +690,27 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
     }
   };
 
+  const handleSetFlavorQuantity = (flavor, nextQty) => {
+    const safeQty = Math.max(0, Number(nextQty) || 0);
+    setFlavorQuantities((prev) => {
+      const updated = { ...prev };
+      if (safeQty <= 0) {
+        delete updated[flavor];
+      } else {
+        updated[flavor] = safeQty;
+      }
+      return updated;
+    });
+  };
+
+  const handleToggleFlavorRow = (flavor) => {
+    const currentQty = Number(flavorQuantities[flavor]) || 0;
+    handleSetFlavorQuantity(flavor, currentQty > 0 ? 0 : 1);
+  };
+
   const handleTapFlavor = (flavor) => {
     if (flavorMode === 'entera') {
-      setSelectedHalf1(flavor);
-      setSelectedHalf2(null);
+      handleToggleFlavorRow(flavor);
       return;
     }
 
@@ -691,47 +732,89 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
     }
   };
 
+  const selectedEnteraFlavors = useMemo(() => {
+    if (!flavorModalProduct || !Array.isArray(flavorModalProduct.flavors)) return [];
+    return flavorModalProduct.flavors
+      .map((flavor) => ({
+        flavor,
+        quantity: Number(flavorQuantities[flavor]) || 0
+      }))
+      .filter((entry) => entry.quantity > 0);
+  }, [flavorModalProduct, flavorQuantities]);
+
+  const enteraTotalUnits = useMemo(
+    () => selectedEnteraFlavors.reduce((sum, entry) => sum + entry.quantity, 0),
+    [selectedEnteraFlavors]
+  );
+
+  const flavorUnitPrice = Number(flavorModalProduct?.price) || 0;
+
   const isFlavorSelectionValid =
     flavorMode === 'entera'
-      ? Boolean(selectedHalf1)
+      ? enteraTotalUnits > 0
       : Boolean(selectedHalf1 && selectedHalf2);
+
+  const flavorActiveUnits =
+    flavorMode === 'entera'
+      ? enteraTotalUnits
+      : isFlavorSelectionValid
+      ? Math.max(1, Number(mitadQuantity) || 1)
+      : 0;
+
+  const flavorModalSubtotal = flavorActiveUnits * flavorUnitPrice;
 
   const handleConfirmFlavorSelection = () => {
     if (!flavorModalProduct || !isFlavorSelectionValid) return;
 
-    const flavorDetail =
-      flavorMode === 'entera'
-        ? `Entera: ${selectedHalf1}`
-        : `1/2 ${selectedHalf1} + 1/2 ${selectedHalf2}`;
-
-    const selectedFlavors =
-      flavorMode === 'entera'
-        ? [selectedHalf1]
-        : [selectedHalf1, selectedHalf2];
-
     const cleanNote = flavorNote.trim();
-    const variantKey =
-      flavorMode === 'entera'
-        ? `entera:${selectedHalf1}`
-        : `mitad:${selectedHalf1}+${selectedHalf2}`;
-    const variantId = `${flavorModalProduct.id}__${variantKey}${
-      cleanNote ? `__${cleanNote}` : ''
-    }`;
 
-    addToCart({
-      ...flavorModalProduct,
-      id: variantId,
-      productId: flavorModalProduct.id,
-      name: flavorModalProduct.name,
-      flavorDetail,
-      flavorMode,
-      selectedFlavors,
-      itemNote: cleanNote
-    });
+    if (flavorMode === 'entera') {
+      selectedEnteraFlavors.forEach(({ flavor, quantity }) => {
+        const variantKey = `entera:${flavor}`;
+        const variantId = `${flavorModalProduct.id}__${variantKey}${
+          cleanNote ? `__${cleanNote}` : ''
+        }`;
+
+        addToCart({
+          ...flavorModalProduct,
+          id: variantId,
+          variantKey,
+          productId: flavorModalProduct.id,
+          name: flavorModalProduct.name,
+          flavorDetail: `Entera: ${flavor}`,
+          flavorMode: 'entera',
+          selectedFlavors: [flavor],
+          itemNote: cleanNote,
+          quantityToAdd: quantity
+        });
+      });
+    } else {
+      const flavorDetail = `1/2 ${selectedHalf1} + 1/2 ${selectedHalf2}`;
+      const selectedFlavors = [selectedHalf1, selectedHalf2];
+      const variantKey = `mitad:${selectedHalf1}+${selectedHalf2}`;
+      const variantId = `${flavorModalProduct.id}__${variantKey}${
+        cleanNote ? `__${cleanNote}` : ''
+      }`;
+
+      addToCart({
+        ...flavorModalProduct,
+        id: variantId,
+        variantKey,
+        productId: flavorModalProduct.id,
+        name: flavorModalProduct.name,
+        flavorDetail,
+        flavorMode: 'mitad',
+        selectedFlavors,
+        itemNote: cleanNote,
+        quantityToAdd: Math.max(1, Number(mitadQuantity) || 1)
+      });
+    }
 
     setFlavorModalProduct(null);
+    setFlavorQuantities({});
     setSelectedHalf1(null);
     setSelectedHalf2(null);
+    setMitadQuantity(1);
     setFlavorNote('');
   };
 
@@ -751,10 +834,10 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
 
   return (
     <>
-    <div className="min-h-screen bg-[#151515] text-neutral-100 flex flex-col font-sans select-none print:hidden">
-      {/* 1. BARRA SUPERIOR: NAVEGACIÓN Y MESAS */}
+    <div className="min-h-screen lg:h-screen lg:overflow-hidden bg-[#151515] text-neutral-100 flex flex-col font-sans select-none print:hidden">
+      {/* 1. BARRA SUPERIOR: NAVEGACIÓN */}
       <header className="h-14 bg-[#1a1a1a] border-b border-neutral-800 px-4 sm:px-6 flex items-center justify-between shrink-0 z-30">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
           {/* BOTÓN MINIMALISTA DE RETORNO AL PANEL */}
           <button
             type="button"
@@ -773,7 +856,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
             <img 
               src="/logo.png" 
               alt="Logo" 
-              className="w-8 h-8 rounded-lg object-contain bg-black border border-neutral-800 shrink-0 shadow-xs" 
+              className="w-8 h-8 rounded-lg object-contain bg-black border border-neutral-800 shrink-0 shadow-sm" 
             />
             <span className="font-bold text-sm tracking-tight text-white">
               Gastro<span className="text-orange-500">POS</span>
@@ -782,47 +865,6 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
               En Línea
             </span>
-          </div>
-        </div>
-
-        {/* Selector de Mesas (Una sola línea horizontal deslizable) */}
-        <div className="flex items-center gap-1.5 max-w-[45vw] sm:max-w-xs md:max-w-md lg:max-w-lg overflow-hidden">
-          <span className="text-xs text-neutral-400 font-medium hidden sm:inline mr-1 shrink-0">Mesa:</span>
-          <div className="flex flex-row overflow-x-auto whitespace-nowrap items-center gap-1.5 p-1 bg-[#151515] rounded-lg border border-neutral-800 hide-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {tablesList.map((table) => {
-              const tableItemCount = (tableCarts?.[table] || []).reduce((acc, i) => acc + (i.quantity || 1), 0);
-              return (
-                <button
-                  key={table}
-                  type="button"
-                  onClick={() => setActiveTable(table)}
-                  className={`min-w-max shrink-0 px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer flex items-center gap-1.5 ${
-                    activeTable === table
-                      ? 'bg-orange-600 text-white font-semibold'
-                      : 'text-neutral-400 hover:text-white'
-                  }`}
-                >
-                  <span>{table}</span>
-                  {tableItemCount > 0 && (
-                    <span className={`text-[10px] px-1 py-0.2 rounded-full font-mono ${
-                      activeTable === table ? 'bg-orange-800 text-white' : 'bg-neutral-800 text-orange-400'
-                    }`}>
-                      {tableItemCount}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-
-            {/* Botón + Crear Mesa */}
-            <button
-              type="button"
-              onClick={handleAddNewTable}
-              className="p-1 px-1.5 rounded-md bg-[#222222] hover:bg-neutral-800 text-orange-500 font-bold text-xs flex items-center justify-center shrink-0 cursor-pointer transition-colors border border-neutral-800 shadow-xs"
-              title="Añadir nueva mesa / cuenta"
-            >
-              <Plus className="w-3.5 h-3.5 text-orange-500" />
-            </button>
           </div>
         </div>
 
@@ -854,14 +896,98 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
         </div>
       </header>
 
-      {/* 2. ÁREA DE TRABAJO: GRILLA Y TICKET */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+      {/* 2. BARRA FIJA DE MESA / CUENTA (PASO 1 ANTES DEL CATÁLOGO) */}
+      <div className="sticky top-0 z-20 lg:static shrink-0 bg-[#1a1a1a] border-b border-neutral-800 px-4 sm:px-6 py-2.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          {/* Título de Paso 1 + Estado de Mesa Activa + Acciones de Cuenta */}
+          <div className="flex items-center justify-between sm:justify-start gap-2.5 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-orange-600/20 text-orange-400 border border-orange-500/40">
+                1. Mesa / Cuenta
+              </span>
+              <span className="text-xs font-bold text-white">
+                {activeTable}
+              </span>
+              {totalItemsCount > 0 && (
+                <span className="text-[11px] font-mono text-orange-400 font-semibold">
+                  • {formatCurrency(total)}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleRenameActiveTable}
+                className="px-2.5 py-1 rounded-lg bg-[#222222] hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800 text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                title={`Renombrar ${activeTable}`}
+              >
+                <Pencil className="w-3 h-3 text-orange-500" />
+                <span>Renombrar</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleAddNewTable}
+                className="px-2.5 py-1 rounded-lg bg-[#222222] hover:bg-neutral-800 text-orange-400 hover:text-orange-300 border border-orange-500/40 text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                title="Crear nueva mesa o cuenta (ej. Mesa 4, Barra 1)"
+              >
+                <Plus className="w-3.5 h-3.5 text-orange-500" />
+                <span>Nueva Cuenta</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Lista horizontal táctil de mesas / cuentas */}
+          <div className="flex flex-row overflow-x-auto whitespace-nowrap items-center gap-1.5 pb-0.5 sm:pb-0 hide-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {tablesList.map((table) => {
+              const isSelected = activeTable === table;
+              const tableItems = tableCarts?.[table] || [];
+              const tableItemCount = tableItems.reduce((acc, i) => acc + (i.quantity || 1), 0);
+              const tablePendingCount = tableItems
+                .filter((i) => !i.sentToKitchen)
+                .reduce((acc, i) => acc + (i.quantity || 1), 0);
+
+              return (
+                <button
+                  key={table}
+                  type="button"
+                  onClick={() => setActiveTable(table)}
+                  className={`min-w-max shrink-0 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 border active:scale-95 ${
+                    isSelected
+                      ? 'bg-orange-600 border-orange-500 text-white shadow-sm'
+                      : 'bg-[#222222] border-neutral-800 text-neutral-300 hover:text-white hover:border-neutral-700'
+                  }`}
+                >
+                  <span>{table}</span>
+                  {tableItemCount > 0 && (
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono leading-none ${
+                        isSelected
+                          ? 'bg-black/30 text-white'
+                          : tablePendingCount > 0
+                          ? 'bg-orange-600/25 text-orange-400 border border-orange-500/40'
+                          : 'bg-[#151515] text-neutral-300'
+                      }`}
+                    >
+                      {tableItemCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* 3. ÁREA DE TRABAJO: GRILLA DE PRODUCTOS Y TICKET */}
+      <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden relative">
         {/* ========================================================= */}
         {/* COLUMNA IZQUIERDA/CENTRO: PRODUCTOS Y FILTROS             */}
         {/* ========================================================= */}
         <section className="flex-1 flex flex-col overflow-y-auto bg-[#151515]">
           {/* PESTAÑAS ANCLADAS Y BUSCADOR */}
-          <div className="sticky top-0 z-20 bg-[#151515]/95 backdrop-blur-xs border-b border-neutral-800/80 p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="sticky top-0 z-10 bg-[#151515]/95 backdrop-blur-sm border-b border-neutral-800/80 p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto">
               <button
                 type="button"
@@ -972,6 +1098,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                   const hasCafeConfig = product.isCafeConfig === true;
                   const isCustomizable =
                     hasFlavors || hasBurgerConfig || hasGourmetConfig || hasCafeConfig;
+                  const displayImage = getProductDisplayImage(product);
 
                   return (
                     <div
@@ -984,14 +1111,23 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                           : 'border-neutral-800/80 hover:border-neutral-700'
                       }`}
                     >
-                      {/* Ícono a la izquierda */}
-                      <div className="w-12 h-12 rounded-lg bg-[#151515] border border-neutral-800 flex items-center justify-center shrink-0">
-                        <ProductIcon
-                          type={product.icon}
-                          category={product.category}
-                          isGourmetConfig={hasGourmetConfig}
-                          isCafeConfig={hasCafeConfig}
-                        />
+                      {/* Miniatura o ícono a la izquierda */}
+                      <div className="w-12 h-12 rounded-lg bg-[#151515] border border-neutral-800 overflow-hidden flex items-center justify-center shrink-0">
+                        {displayImage.imageUrl ? (
+                          <img
+                            src={displayImage.imageUrl}
+                            alt={product.name}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <ProductIcon
+                            type={product.icon}
+                            category={product.category}
+                            isGourmetConfig={hasGourmetConfig}
+                            isCafeConfig={hasCafeConfig}
+                          />
+                        )}
                       </div>
 
                       {/* Título, precio y disponibilidad */}
@@ -1075,47 +1211,33 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
         </section>
 
         {/* ========================================================= */}
-        {/* COLUMNA DERECHA: TICKET / CARRITO CONECTADO A ZUSTAND      */}
+        {/* COLUMNA DERECHA: TICKET DE LA MESA ACTIVA                 */}
         {/* ========================================================= */}
-        <aside className="w-full lg:w-96 xl:w-[390px] bg-[#1a1a1a] border-l border-neutral-800 flex flex-col shrink-0 h-auto lg:h-[calc(100vh-3.5rem)]">
-          {/* Header del Ticket con Selector Visual Minimalista de Mesas */}
-          <div className="p-3.5 bg-[#151515] border-b border-neutral-800 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Receipt className="w-4 h-4 text-orange-500" />
-                <h2 className="font-bold text-xs uppercase tracking-wider text-white">
-                  Ticket de Venta
+        <aside className="w-full lg:w-96 xl:w-[390px] bg-[#1a1a1a] border-t lg:border-t-0 lg:border-l border-neutral-800 flex flex-col shrink-0 h-auto lg:h-full">
+          {/* Header del Ticket de la Mesa Activa */}
+          <div className="p-3.5 bg-[#151515] border-b border-neutral-800">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Receipt className="w-4 h-4 text-orange-500 shrink-0" />
+                <h2 className="font-bold text-xs uppercase tracking-wider text-white shrink-0">
+                  Cuenta:
                 </h2>
-                
-                {/* Botón Agregar (+) con fondo oscuro e ícono + naranja */}
+                <span className="px-2 py-0.5 bg-orange-600/20 text-orange-400 border border-orange-500/40 text-xs font-bold rounded truncate">
+                  {activeTable}
+                </span>
                 <button
                   type="button"
-                  onClick={handleAddNewTable}
-                  className="p-1 rounded bg-[#222222] hover:bg-neutral-800 text-orange-500 border border-neutral-800 transition-colors cursor-pointer flex items-center justify-center shadow-xs"
-                  title="Añadir nueva mesa / cuenta"
+                  onClick={handleRenameActiveTable}
+                  className="p-1 rounded bg-[#222222] hover:bg-neutral-800 text-neutral-400 hover:text-orange-400 border border-neutral-800 transition-colors cursor-pointer flex items-center justify-center shrink-0"
+                  title={`Renombrar ${activeTable}`}
                 >
-                  <Plus className="w-3.5 h-3.5 text-orange-500" />
+                  <Pencil className="w-3 h-3" />
                 </button>
-
-                <div className="flex items-center gap-1">
-                  <span className="px-2 py-0.5 bg-neutral-800 text-orange-400 border border-neutral-700/60 text-[10px] font-bold rounded">
-                    {activeTable}
-                  </span>
-                  {/* Botón Renombrar Mesa Activa */}
-                  <button
-                    type="button"
-                    onClick={handleRenameActiveTable}
-                    className="p-1 rounded bg-[#222222] hover:bg-neutral-800 text-neutral-400 hover:text-orange-400 border border-neutral-800 transition-colors cursor-pointer flex items-center justify-center"
-                    title={`Renombrar ${activeTable}`}
-                  >
-                    <Pencil className="w-3 h-3" />
-                  </button>
-                </div>
               </div>
 
               {cart.length > 0 && (
                 confirmClearTable ? (
-                  <div className="flex items-center gap-1.5 bg-[#222222] border border-red-800/70 px-2 py-0.5 rounded-lg">
+                  <div className="flex items-center gap-1.5 bg-[#222222] border border-red-800/70 px-2 py-0.5 rounded-lg shrink-0">
                     <span className="text-[10px] font-semibold text-red-300">¿Vaciar cuenta?</span>
                     <button
                       type="button"
@@ -1146,7 +1268,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                         clearCart(activeTable);
                       }
                     }}
-                    className="text-[11px] text-neutral-400 hover:text-red-400 transition-colors flex items-center gap-1 cursor-pointer"
+                    className="text-[11px] text-neutral-400 hover:text-red-400 transition-colors flex items-center gap-1 cursor-pointer shrink-0"
                     title="Vaciar ticket de esta mesa"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -1154,74 +1276,6 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                   </button>
                 )
               )}
-            </div>
-
-            {/* Selector de Mesas con Creación a Demanda (Una sola línea horizontal deslizable) */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-[10px]">
-                <div className="flex items-center gap-1.5">
-                  <span className="uppercase font-bold tracking-wider text-neutral-400">
-                    Mesa / Cuenta ({tablesList.length}):
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleAddNewTable}
-                    className="p-0.5 px-1 rounded bg-[#222222] hover:bg-neutral-800 text-orange-500 border border-neutral-800 transition-colors cursor-pointer flex items-center justify-center shadow-xs"
-                    title="Añadir nueva mesa"
-                  >
-                    <Plus className="w-2.5 h-2.5 text-orange-500" />
-                  </button>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-orange-500 font-semibold font-mono">
-                    {activeTable}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleRenameActiveTable}
-                    className="p-0.5 text-neutral-400 hover:text-orange-400 transition-colors cursor-pointer"
-                    title="Renombrar mesa activa"
-                  >
-                    <Pencil className="w-2.5 h-2.5" />
-                  </button>
-                </div>
-              </div>
-              <div className="flex flex-row overflow-x-auto whitespace-nowrap items-center gap-2 pb-2 hide-scrollbar [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {tablesList.map((table) => {
-                  const isSelected = activeTable === table;
-                  const count = (tableCarts?.[table] || []).reduce((acc, i) => acc + (i.quantity || 1), 0);
-                  return (
-                    <button
-                      key={table}
-                      type="button"
-                      onClick={() => setActiveTable(table)}
-                      className={`min-w-max shrink-0 py-2 px-3 rounded-lg text-xs font-medium transition-colors cursor-pointer text-center flex items-center gap-1.5 ${
-                        isSelected
-                          ? 'bg-orange-600 text-white font-semibold'
-                          : 'bg-neutral-800 text-neutral-400 hover:text-white'
-                      }`}
-                    >
-                      <span>{table}</span>
-                      {count > 0 && (
-                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${isSelected ? 'bg-orange-800 text-white' : 'bg-[#151515] text-orange-400'}`}>
-                          {count}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-
-                {/* Botón + Crear Mesa al final de la lista */}
-                <button
-                  type="button"
-                  onClick={handleAddNewTable}
-                  className="min-w-max shrink-0 py-2 px-2.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-orange-500 hover:text-orange-400 border border-neutral-700/60 text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
-                  title="Crear nueva mesa (ej. Mesa 4, Patio 1)"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span className="text-[11px] font-medium">Nueva</span>
-                </button>
-              </div>
             </div>
           </div>
 
@@ -1554,21 +1608,27 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
         </aside>
       </div>
 
-      {/* MODAL TÁCTIL SELECTOR DE SABORES (ENTERA / MITAD Y MITAD) */}
+      {/* MODAL TÁCTIL SELECTOR DE SABORES (ENTERA POR SABOR / MITAD Y MITAD) */}
       {flavorModalProduct && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[#222222] border border-neutral-800 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setFlavorModalProduct(null)}
+        >
+          <div
+            className="bg-[#222222] border border-neutral-800 rounded-2xl max-w-xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[92vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Cabecera del Modal */}
             <div className="p-4 sm:p-5 bg-[#151515] border-b border-neutral-800 flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-orange-500 block">
-                  Selector de Sabores
+                  Selector de Sabores • {activeTable}
                 </span>
                 <h3 className="text-base sm:text-lg font-bold text-white truncate">
                   {flavorModalProduct.name}
                 </h3>
                 <span className="text-xs font-mono font-bold text-neutral-400">
-                  {formatCurrency(flavorModalProduct.price)}
+                  Precio unitario: {formatCurrency(flavorUnitPrice)}
                 </span>
               </div>
               <button
@@ -1582,23 +1642,23 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
 
             {/* Contenido del Modal */}
             <div className="p-4 sm:p-5 space-y-4 overflow-y-auto">
-              {/* 1. Botones grandes de Modalidad: Entera vs Mitad y Mitad */}
+              {/* 1. Botones grandes de Modalidad: Entera (Cantidades por sabor) vs Mitad y Mitad */}
               <div className="grid grid-cols-2 gap-2.5">
                 <button
                   type="button"
                   onClick={() => handleSelectFlavorMode('entera')}
-                  className={`py-3.5 px-4 rounded-xl font-bold text-xs sm:text-sm uppercase tracking-wider transition-colors cursor-pointer border ${
+                  className={`py-3 px-4 rounded-xl font-bold text-xs sm:text-sm uppercase tracking-wider transition-colors cursor-pointer border ${
                     flavorMode === 'entera'
                       ? 'bg-orange-600 border-orange-500 text-white shadow-sm'
                       : 'bg-[#151515] border-neutral-800 text-neutral-300 hover:text-white hover:border-neutral-700'
                   }`}
                 >
-                  Entera (1 Sabor)
+                  Entera / Por Sabor
                 </button>
                 <button
                   type="button"
                   onClick={() => handleSelectFlavorMode('mitad')}
-                  className={`py-3.5 px-4 rounded-xl font-bold text-xs sm:text-sm uppercase tracking-wider transition-colors cursor-pointer border ${
+                  className={`py-3 px-4 rounded-xl font-bold text-xs sm:text-sm uppercase tracking-wider transition-colors cursor-pointer border ${
                     flavorMode === 'mitad'
                       ? 'bg-orange-600 border-orange-500 text-white shadow-sm'
                       : 'bg-[#151515] border-neutral-800 text-neutral-300 hover:text-white hover:border-neutral-700'
@@ -1608,93 +1668,239 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
                 </button>
               </div>
 
-              {/* Indicador visual de Mitad 1 y Mitad 2 */}
+              {/* Resumen visual de selección según modalidad */}
               {flavorMode === 'mitad' ? (
-                <div className="grid grid-cols-2 gap-2.5 bg-[#151515] p-3 rounded-xl border border-neutral-800">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedHalf1(null)}
-                    className={`p-2.5 rounded-lg border text-left transition-colors cursor-pointer ${
-                      selectedHalf1
-                        ? 'bg-[#222222] border-orange-500/70'
-                        : 'bg-[#1a1a1a] border-dashed border-neutral-700'
-                    }`}
-                  >
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-orange-400 block">
-                      Mitad 1
-                    </span>
-                    <span className="text-sm font-bold text-white block truncate mt-0.5">
-                      {selectedHalf1 || 'Toca un sabor...'}
-                    </span>
-                  </button>
+                <div className="space-y-2.5">
+                  <div className="grid grid-cols-2 gap-2.5 bg-[#151515] p-3 rounded-xl border border-neutral-800">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedHalf1(null)}
+                      className={`p-2.5 rounded-lg border text-left transition-colors cursor-pointer ${
+                        selectedHalf1
+                          ? 'bg-[#222222] border-orange-500/70'
+                          : 'bg-[#1a1a1a] border-dashed border-neutral-700'
+                      }`}
+                    >
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-orange-400 block">
+                        Mitad 1
+                      </span>
+                      <span className="text-sm font-bold text-white block truncate mt-0.5">
+                        {selectedHalf1 || 'Toca un sabor...'}
+                      </span>
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setSelectedHalf2(null)}
-                    className={`p-2.5 rounded-lg border text-left transition-colors cursor-pointer ${
-                      selectedHalf2
-                        ? 'bg-[#222222] border-orange-500/70'
-                        : 'bg-[#1a1a1a] border-dashed border-neutral-700'
-                    }`}
-                  >
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-orange-400 block">
-                      Mitad 2
+                    <button
+                      type="button"
+                      onClick={() => setSelectedHalf2(null)}
+                      className={`p-2.5 rounded-lg border text-left transition-colors cursor-pointer ${
+                        selectedHalf2
+                          ? 'bg-[#222222] border-orange-500/70'
+                          : 'bg-[#1a1a1a] border-dashed border-neutral-700'
+                      }`}
+                    >
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-orange-400 block">
+                        Mitad 2
+                      </span>
+                      <span className="text-sm font-bold text-white block truncate mt-0.5">
+                        {selectedHalf2 || 'Toca otro sabor...'}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Selector rápido de cantidad para Mitad y Mitad */}
+                  <div className="bg-[#151515] px-3 py-2 rounded-xl border border-neutral-800 flex items-center justify-between">
+                    <span className="text-xs text-neutral-300 font-semibold">
+                      Cantidad de unidades:
                     </span>
-                    <span className="text-sm font-bold text-white block truncate mt-0.5">
-                      {selectedHalf2 || 'Toca otro sabor...'}
-                    </span>
-                  </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setMitadQuantity((q) => Math.max(1, q - 1))}
+                        className="w-8 h-8 rounded-lg bg-[#222222] hover:bg-neutral-800 border border-neutral-800 text-neutral-200 flex items-center justify-center cursor-pointer active:scale-95"
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="w-8 text-center font-mono font-bold text-sm text-white">
+                        {mitadQuantity}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setMitadQuantity((q) => q + 1)}
+                        className="w-8 h-8 rounded-lg bg-[#222222] hover:bg-neutral-800 border border-neutral-800 text-orange-400 flex items-center justify-center cursor-pointer active:scale-95"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ) : (
-                <div className="bg-[#151515] p-3 rounded-xl border border-neutral-800 flex items-center justify-between">
-                  <span className="text-xs text-neutral-400 font-medium">
-                    Sabor seleccionado:
-                  </span>
-                  <span className="text-sm font-bold text-orange-400">
-                    {selectedHalf1 || 'Ninguno'}
-                  </span>
+                <div className="bg-[#151515] p-3 rounded-xl border border-neutral-800 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-neutral-300 font-semibold">
+                      Resumen seleccionado:
+                    </span>
+                    {enteraTotalUnits > 0 ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-orange-400">
+                          {enteraTotalUnits} {enteraTotalUnits === 1 ? 'unidad' : 'unidades'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setFlavorQuantities({})}
+                          className="text-[11px] text-neutral-400 hover:text-white underline cursor-pointer"
+                        >
+                          Limpiar
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-neutral-500">Sin cantidades</span>
+                    )}
+                  </div>
+
+                  {selectedEnteraFlavors.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedEnteraFlavors.map(({ flavor, quantity }) => (
+                        <span
+                          key={`summary-${flavor}`}
+                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#222222] border border-orange-500/40 text-xs font-semibold text-white"
+                        >
+                          <span className="text-orange-400 font-mono font-bold">{quantity}x</span>
+                          <span>{flavor}</span>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-neutral-500">
+                      Elige cantidades rápidas con -, 1, 2, 3, 4 o + en cada sabor (ej. 3 de carne y 2 de queso).
+                    </p>
+                  )}
                 </div>
               )}
 
-              {/* 2. Grilla táctil de sabores disponibles */}
-              <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 block mb-2">
-                  {flavorMode === 'entera'
-                    ? 'Elige 1 sabor:'
-                    : 'Elige exactamente 2 sabores:'}
-                </span>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {(flavorModalProduct.flavors || []).map((flavor) => {
-                    const isHalf1 = selectedHalf1 === flavor;
-                    const isHalf2 = flavorMode === 'mitad' && selectedHalf2 === flavor;
-                    const isSelected = isHalf1 || isHalf2;
+              {/* 2. Selector de Sabores */}
+              {flavorMode === 'entera' ? (
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 block mb-2">
+                    Elige cantidad por cada sabor:
+                  </span>
+                  <div className="space-y-2">
+                    {(flavorModalProduct.flavors || []).map((flavor) => {
+                      const qty = Number(flavorQuantities[flavor]) || 0;
+                      const isActive = qty > 0;
+                      const flavorThumb = resolveAutoProductImage(
+                        flavorModalProduct.name,
+                        flavorModalProduct.category || 'Comidas',
+                        flavorModalProduct.type || '',
+                        [flavor]
+                      );
 
-                    return (
-                      <button
-                        key={flavor}
-                        type="button"
-                        onClick={() => handleTapFlavor(flavor)}
-                        className={`p-3 rounded-xl text-left font-semibold text-xs sm:text-sm transition-colors cursor-pointer border flex flex-col justify-between min-h-14 active:scale-95 ${
-                          isSelected
-                            ? 'bg-orange-600 border-orange-400 text-white shadow-sm'
-                            : 'bg-[#151515] border-neutral-800 text-neutral-200 hover:border-neutral-600 hover:bg-[#1c1c1c]'
-                        }`}
-                      >
-                        <span className="leading-tight break-words">{flavor}</span>
-                        {isSelected && (
-                          <span className="mt-1.5 inline-block self-start px-1.5 py-0.5 rounded bg-black/30 text-[10px] font-bold uppercase tracking-wider text-white">
-                            {flavorMode === 'entera'
-                              ? 'Entera'
-                              : isHalf1
-                              ? 'Mitad 1'
-                              : 'Mitad 2'}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
+                      return (
+                        <div
+                          key={flavor}
+                          className={`p-2.5 sm:p-3 rounded-xl border transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+                            isActive
+                              ? 'bg-[#1b1715] border-orange-500/80'
+                              : 'bg-[#151515] border-neutral-800 hover:border-neutral-700'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleToggleFlavorRow(flavor)}
+                            className="flex items-center justify-between sm:justify-start gap-2.5 text-left min-w-0 flex-1 cursor-pointer"
+                          >
+                            <div className="w-9 h-9 rounded-lg bg-[#222222] border border-neutral-800 overflow-hidden shrink-0">
+                              <img
+                                src={flavorThumb.imageUrl}
+                                alt={flavor}
+                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <span className="text-sm font-bold text-white truncate">
+                              {flavor}
+                            </span>
+                            {isActive && (
+                              <span className="px-2 py-0.5 rounded-md bg-orange-600/20 border border-orange-500/50 text-orange-400 text-xs font-mono font-bold shrink-0">
+                                {qty}x • {formatCurrency(qty * flavorUnitPrice)}
+                              </span>
+                            )}
+                          </button>
+
+                          {/* Controles rápidos de cantidad: -, 1, 2, 3, 4, + */}
+                          <div className="flex items-center justify-end gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              disabled={qty <= 0}
+                              onClick={() => handleSetFlavorQuantity(flavor, qty - 1)}
+                              className="w-8 h-8 rounded-lg bg-[#222222] hover:bg-neutral-800 disabled:opacity-35 disabled:pointer-events-none border border-neutral-800 text-neutral-200 flex items-center justify-center transition-colors cursor-pointer active:scale-95"
+                              title={`Quitar 1 ${flavor}`}
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+
+                            {[1, 2, 3, 4].map((presetQty) => (
+                              <button
+                                key={presetQty}
+                                type="button"
+                                onClick={() => handleSetFlavorQuantity(flavor, presetQty)}
+                                className={`w-8 h-8 rounded-lg text-xs font-mono font-bold border transition-colors cursor-pointer active:scale-95 ${
+                                  qty === presetQty
+                                    ? 'bg-orange-600 border-orange-400 text-white shadow-sm'
+                                    : 'bg-[#222222] hover:bg-neutral-800 border-neutral-800 text-neutral-300 hover:text-white'
+                                }`}
+                              >
+                                {presetQty}
+                              </button>
+                            ))}
+
+                            <button
+                              type="button"
+                              onClick={() => handleSetFlavorQuantity(flavor, qty + 1)}
+                              className="w-8 h-8 rounded-lg bg-[#222222] hover:bg-neutral-800 border border-neutral-700 text-orange-400 hover:text-orange-300 flex items-center justify-center transition-colors cursor-pointer active:scale-95"
+                              title={`Sumar 1 ${flavor}`}
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 block mb-2">
+                    Elige exactamente 2 sabores:
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {(flavorModalProduct.flavors || []).map((flavor) => {
+                      const isHalf1 = selectedHalf1 === flavor;
+                      const isHalf2 = selectedHalf2 === flavor;
+                      const isSelected = isHalf1 || isHalf2;
+
+                      return (
+                        <button
+                          key={flavor}
+                          type="button"
+                          onClick={() => handleTapFlavor(flavor)}
+                          className={`p-3 rounded-xl text-left font-semibold text-xs sm:text-sm transition-colors cursor-pointer border flex flex-col justify-between min-h-14 active:scale-95 ${
+                            isSelected
+                              ? 'bg-orange-600 border-orange-400 text-white shadow-sm'
+                              : 'bg-[#151515] border-neutral-800 text-neutral-200 hover:border-neutral-600 hover:bg-[#1c1c1c]'
+                          }`}
+                        >
+                          <span className="leading-tight break-words">{flavor}</span>
+                          {isSelected && (
+                            <span className="mt-1.5 inline-block self-start px-1.5 py-0.5 rounded bg-black/30 text-[10px] font-bold uppercase tracking-wider text-white">
+                              {isHalf1 ? 'Mitad 1' : 'Mitad 2'}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* 3. Notas adicionales para este ítem */}
               <div>
@@ -1711,24 +1917,37 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
               </div>
             </div>
 
-            {/* Pie del Modal: Confirmar */}
-            <div className="p-4 bg-[#151515] border-t border-neutral-800 flex items-center justify-end gap-2.5">
-              <button
-                type="button"
-                onClick={() => setFlavorModalProduct(null)}
-                className="py-2.5 px-4 rounded-xl bg-[#222222] hover:bg-neutral-800 text-neutral-300 text-xs font-semibold cursor-pointer transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                disabled={!isFlavorSelectionValid}
-                onClick={handleConfirmFlavorSelection}
-                className="flex-1 sm:flex-none py-2.5 px-6 rounded-xl bg-orange-600 hover:bg-orange-500 disabled:opacity-40 disabled:pointer-events-none text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-colors"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Agregar al Ticket</span>
-              </button>
+            {/* Pie del Modal: Subtotal en vivo + Confirmar */}
+            <div className="p-4 bg-[#151515] border-t border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <span className="text-[10px] text-neutral-400 uppercase font-semibold block">
+                  {flavorActiveUnits > 0
+                    ? `${flavorActiveUnits} ${flavorActiveUnits === 1 ? 'unidad' : 'unidades'} × ${formatCurrency(flavorUnitPrice)}`
+                    : 'Subtotal estimado'}
+                </span>
+                <span className="text-lg font-bold font-mono text-orange-500">
+                  {formatCurrency(flavorModalSubtotal)}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setFlavorModalProduct(null)}
+                  className="py-2.5 px-4 rounded-xl bg-[#222222] hover:bg-neutral-800 text-neutral-300 text-xs font-semibold cursor-pointer transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={!isFlavorSelectionValid}
+                  onClick={handleConfirmFlavorSelection}
+                  className="flex-1 sm:flex-none py-2.5 px-6 rounded-xl bg-orange-600 hover:bg-orange-500 disabled:opacity-40 disabled:pointer-events-none text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Agregar al Ticket</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2165,7 +2384,7 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
             <div>
               <p className="font-bold text-white text-sm">{successToast}</p>
               <p className="text-[11px] text-neutral-400">
-                {successToast === 'Enviado a cocina'
+                {successToast.startsWith('Comanda enviada')
                   ? `Pedido enviado a cocina para ${activeTable}`
                   : 'Venta registrada y stock actualizado'}
               </p>
@@ -2182,11 +2401,26 @@ export const POSDashboard = ({ currentUser, onLogout }) => {
       id="thermal-receipt-80mm"
       className="hidden print:block bg-white text-black font-mono"
     >
-      <div className="text-center pb-2 border-b border-dashed border-black">
-        <div className="text-base font-extrabold tracking-wide uppercase">
-          GASTROPOS — RESTAURANT & BAR
+      <div className="text-center pb-2 border-b border-dashed border-black space-y-0.5">
+        <div className="text-base font-extrabold tracking-wide uppercase leading-tight">
+          {(businessConfig?.nombreComercial || '').trim() || 'GASTROPOS — RESTAURANT & BAR'}
         </div>
-        <div className="text-[11px] font-bold uppercase tracking-wider mt-0.5">
+        {businessConfig?.ruc?.trim() && (
+          <div className="text-[10px] font-bold">
+            RUC: {businessConfig.ruc.trim()}
+          </div>
+        )}
+        {businessConfig?.direccion?.trim() && (
+          <div className="text-[10px] leading-snug">
+            {businessConfig.direccion.trim()}
+          </div>
+        )}
+        {businessConfig?.telefono?.trim() && (
+          <div className="text-[10px]">
+            Tel. / WhatsApp: {businessConfig.telefono.trim()}
+          </div>
+        )}
+        <div className="text-[11px] font-bold uppercase tracking-wider pt-1">
           {receiptToPrint.tipo}
         </div>
       </div>

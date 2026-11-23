@@ -7,6 +7,9 @@ import {
   Tablet,
   Copy,
   Check,
+  TrendingUp,
+  TrendingDown,
+  Receipt,
   DollarSign,
   Clock,
   Beer,
@@ -15,9 +18,9 @@ import {
   Layers,
   ChefHat,
   Coffee,
-  AlertCircle,
-  Sparkles,
-  ShoppingBag
+  Activity,
+  BarChart3,
+  AlertCircle
 } from 'lucide-react';
 
 const resolveRecordDate = (record) => {
@@ -52,7 +55,7 @@ const isDrinkItem = (item) => {
 
 const formatGs = (amount) => `${Math.round(Number(amount) || 0).toLocaleString('es-PY')}`;
 
-export const DashboardHome = ({ onOpenProModal }) => {
+export const DashboardHome = ({ onOpenProModal = undefined } = {}) => {
   const navigate = useNavigate();
   const tableCarts = useCartStore((state) => state.tableCarts);
 
@@ -132,25 +135,40 @@ export const DashboardHome = ({ onOpenProModal }) => {
     }
   };
 
-  // Cálculos reales esenciales para el plan gratuito
+  // Cálculos reales a partir de ventas registradas, comandas activas y cuentas abiertas en salón
   const metrics = useMemo(() => {
     const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+
     const salesToday = [];
+    const salesYesterday = [];
 
     ventas.forEach((venta) => {
       const date = resolveRecordDate(venta);
       if (!date) return;
       if (isSameLocalDay(date, now)) {
-        salesToday.push(venta);
+        salesToday.push({ ...venta, _date: date });
+      } else if (isSameLocalDay(date, yesterday)) {
+        salesYesterday.push({ ...venta, _date: date });
       }
     });
 
+    salesToday.sort((a, b) => b._date.getTime() - a._date.getTime());
+
     const totalSalesToday = salesToday.reduce((sum, v) => sum + (Number(v.total) || 0), 0);
+    const totalSalesYesterday = salesYesterday.reduce((sum, v) => sum + (Number(v.total) || 0), 0);
     const closedOrdersToday = salesToday.length;
     const avgTicketToday =
       closedOrdersToday > 0 ? Math.round(totalSalesToday / closedOrdersToday) : 0;
 
-    // Mesas / cuentas activas reales (cuentas con pedidos abiertos + comandas pendientes)
+    // Variación vs ayer: solo se calcula si existen ventas reales registradas ayer
+    const hasYesterdayBaseline = salesYesterday.length > 0 && totalSalesYesterday > 0;
+    const vsYesterdayPct = hasYesterdayBaseline
+      ? ((totalSalesToday - totalSalesYesterday) / totalSalesYesterday) * 100
+      : null;
+
+    // Mesas activas reales (unión de cuentas con ítems en POS + comandas activas en cocina/barra)
     const configuredTables = Object.keys(tableCarts || {});
     const openPosTables = configuredTables.filter(
       (tableName) => Array.isArray(tableCarts[tableName]) && tableCarts[tableName].length > 0
@@ -165,7 +183,7 @@ export const DashboardHome = ({ onOpenProModal }) => {
     const activeTablesSet = new Set([...openPosTables, ...activeComandaTables]);
     const allKnownTablesSet = new Set([...configuredTables, ...activeComandaTables]);
 
-    // Conteo real de comandas pendientes por estación para badges en Cocina y Barra
+    // Conteo real de comandas por estación (Cocina vs Barra)
     let cocinaComandasCount = 0;
     let barraComandasCount = 0;
     comandasActivas.forEach((comanda) => {
@@ -176,7 +194,7 @@ export const DashboardHome = ({ onOpenProModal }) => {
       if (hasDrink) barraComandasCount += 1;
     });
 
-    // Lista simple de productos más vendidos hoy
+    // Ranking real de platos y bebidas más vendidos hoy
     const productMap = new Map();
     salesToday.forEach((venta) => {
       const items = Array.isArray(venta.items) ? venta.items : [];
@@ -209,16 +227,48 @@ export const DashboardHome = ({ onOpenProModal }) => {
       .sort((a, b) => b.quantity - a.quantity || b.total - a.total)
       .slice(0, 5);
 
+    // Franja horaria de mayor movimiento hoy (solo si hay al menos 2 ventas reales)
+    let peakHourInfo = null;
+    if (salesToday.length >= 2) {
+      const hourlyMap = new Map();
+      salesToday.forEach((venta) => {
+        const hour = venta._date.getHours();
+        const existing = hourlyMap.get(hour) || { hour, count: 0, total: 0 };
+        existing.count += 1;
+        existing.total += Number(venta.total) || 0;
+        hourlyMap.set(hour, existing);
+      });
+      const sortedHours = Array.from(hourlyMap.values()).sort(
+        (a, b) => b.count - a.count || b.total - a.total
+      );
+      if (sortedHours.length > 0) {
+        const top = sortedHours[0];
+        const pad = (n) => String(n).padStart(2, '0');
+        const nextHour = (top.hour + 1) % 24;
+        peakHourInfo = {
+          range: `${pad(top.hour)}:00 - ${pad(nextHour)}:00`,
+          count: top.count,
+          total: top.total
+        };
+      }
+    }
+
     return {
       totalSalesToday,
       closedOrdersToday,
       avgTicketToday,
+      hasYesterdayBaseline,
+      vsYesterdayPct,
+      activeTables: Array.from(activeTablesSet),
       activeTablesCount: activeTablesSet.size,
       totalTablesCount: allKnownTablesSet.size,
+      openPosTablesCount: openPosTables.length,
       activeComandasCount: comandasActivas.length,
       cocinaComandasCount,
       barraComandasCount,
-      topProductsToday
+      topProductsToday,
+      recentSalesToday: salesToday.slice(0, 4),
+      peakHourInfo
     };
   }, [ventas, comandasActivas, tableCarts]);
 
@@ -345,21 +395,21 @@ export const DashboardHome = ({ onOpenProModal }) => {
         </div>
       )}
 
-      {/* 2. MÉTRICAS BÁSICAS DEL TURNO (PLAN GRATUITO - SIN GRÁFICOS) */}
+      {/* 2. MÉTRICAS REALES EN TIEMPO REAL */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-400">
-            Resumen del Turno de Hoy
+            Métricas del Turno de Hoy
           </h2>
           <span className="text-[11px] text-neutral-500 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
-            {isLoading ? 'Actualizando...' : 'En vivo'}
+            {isLoading ? 'Cargando registros...' : 'En vivo'}
           </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
           {/* Card 1: Ventas del Día */}
-          <div className="bg-[#222222] border border-neutral-800/80 p-4 rounded-xl">
+          <div className="bg-[#222222] border border-neutral-800/80 p-4 rounded-xl shadow-sm">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-neutral-400">Ventas del Día</span>
               <DollarSign className="w-4 h-4 text-orange-500" />
@@ -368,19 +418,39 @@ export const DashboardHome = ({ onOpenProModal }) => {
               {formatGs(metrics.totalSalesToday)}{' '}
               <span className="text-xs text-neutral-400 font-normal">Gs.</span>
             </div>
-            <p className="mt-1.5 text-xs text-neutral-400">
-              {metrics.closedOrdersToday > 0
-                ? `${metrics.closedOrdersToday} ${
-                    metrics.closedOrdersToday === 1 ? 'venta cobrada hoy' : 'ventas cobradas hoy'
-                  }`
-                : 'Sin ventas registradas hoy'}
-            </p>
+            <div className="mt-2 text-xs font-medium flex items-center gap-1">
+              {metrics.hasYesterdayBaseline && metrics.vsYesterdayPct !== null ? (
+                <span
+                  className={`flex items-center gap-1 ${
+                    metrics.vsYesterdayPct >= 0 ? 'text-orange-500' : 'text-neutral-400'
+                  }`}
+                >
+                  {metrics.vsYesterdayPct >= 0 ? (
+                    <TrendingUp className="w-3.5 h-3.5" />
+                  ) : (
+                    <TrendingDown className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {metrics.vsYesterdayPct >= 0 ? '+' : ''}
+                    {metrics.vsYesterdayPct.toFixed(1)}% vs ayer
+                  </span>
+                </span>
+              ) : metrics.closedOrdersToday > 0 ? (
+                <span className="text-neutral-400">
+                  Sin ventas de ayer para comparar
+                </span>
+              ) : (
+                <span className="text-neutral-500">
+                  Sin ventas registradas hoy
+                </span>
+              )}
+            </div>
           </div>
 
-          {/* Card 2: Mesas / Cuentas Activas */}
-          <div className="bg-[#222222] border border-neutral-800/80 p-4 rounded-xl">
+          {/* Card 2: Mesas Activas */}
+          <div className="bg-[#222222] border border-neutral-800/80 p-4 rounded-xl shadow-sm">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-neutral-400">Mesas / Cuentas Activas</span>
+              <span className="text-xs text-neutral-400">Mesas Activas</span>
               <Layers className="w-4 h-4 text-orange-500" />
             </div>
             <div className="text-2xl font-bold text-white font-mono">
@@ -390,19 +460,36 @@ export const DashboardHome = ({ onOpenProModal }) => {
                 {metrics.totalTablesCount === 1 ? 'cuenta' : 'cuentas'}
               </span>
             </div>
-            <p className="mt-1.5 text-xs text-neutral-400">
-              {metrics.activeComandasCount > 0
-                ? `${metrics.activeComandasCount} ${
-                    metrics.activeComandasCount === 1 ? 'comanda en curso' : 'comandas en curso'
-                  }`
-                : metrics.activeTablesCount > 0
-                ? 'Cuentas abiertas en salón'
-                : 'Todas las mesas libres'}
-            </p>
+            <div className="mt-2 text-xs text-neutral-400">
+              {metrics.activeTablesCount === 0
+                ? 'Todas las mesas disponibles'
+                : `${metrics.openPosTablesCount} en caja/salón • ${metrics.activeComandasCount} en cocina/barra`}
+            </div>
           </div>
 
-          {/* Card 3: Ticket Promedio */}
-          <div className="bg-[#222222] border border-neutral-800/80 p-4 rounded-xl">
+          {/* Card 3: Ventas / Órdenes Cerradas */}
+          <div className="bg-[#222222] border border-neutral-800/80 p-4 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-neutral-400">Ventas Cerradas Hoy</span>
+              <Receipt className="w-4 h-4 text-orange-500" />
+            </div>
+            <div className="text-2xl font-bold text-white font-mono">
+              {metrics.closedOrdersToday}{' '}
+              <span className="text-xs text-neutral-400 font-normal">
+                {metrics.closedOrdersToday === 1 ? 'orden' : 'órdenes'}
+              </span>
+            </div>
+            <div className="mt-2 text-xs text-neutral-400">
+              {metrics.activeComandasCount === 0
+                ? 'Sin comandas en preparación'
+                : `${metrics.activeComandasCount} ${
+                    metrics.activeComandasCount === 1 ? 'comanda activa' : 'comandas activas'
+                  } en curso`}
+            </div>
+          </div>
+
+          {/* Card 4: Ticket Promedio */}
+          <div className="bg-[#222222] border border-neutral-800/80 p-4 rounded-xl shadow-sm">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-neutral-400">Ticket Promedio</span>
               <Clock className="w-4 h-4 text-orange-500" />
@@ -411,103 +498,175 @@ export const DashboardHome = ({ onOpenProModal }) => {
               {formatGs(metrics.avgTicketToday)}{' '}
               <span className="text-xs text-neutral-400 font-normal">Gs.</span>
             </div>
-            <p className="mt-1.5 text-xs text-neutral-400">
+            <div className="mt-2 text-xs text-neutral-400">
               {metrics.closedOrdersToday > 0
-                ? 'Promedio por cuenta cobrada'
-                : 'Se calcula al cobrar hoy'}
-            </p>
+                ? `Promedio sobre ${metrics.closedOrdersToday} ${
+                    metrics.closedOrdersToday === 1 ? 'cobro' : 'cobros'
+                  }`
+                : 'Se calcula al registrar cobros hoy'}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 3. LISTA COMPACTA DE PRODUCTOS MÁS VENDIDOS + LLAMADO DISCRETO A PRO */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Productos más vendidos hoy (lista simple sin gráficos) */}
-        <div className="lg:col-span-2 bg-[#222222] border border-neutral-800/80 rounded-xl p-4 sm:p-5">
-          <div className="flex items-center justify-between mb-3.5">
-            <div>
-              <h3 className="text-sm font-bold text-white">Productos Más Vendidos</h3>
-              <p className="text-[11px] text-neutral-400">Turno de hoy</p>
+      {/* 3. PRODUCTOS MÁS VENDIDOS REALES Y ESTADO OPERATIVO EN VIVO */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Platos y Bebidas más vendidos del día */}
+        <div className="lg:col-span-2 bg-[#222222] border border-neutral-800/80 rounded-xl p-5 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-bold text-white">Platos y Bebidas Más Vendidos</h3>
+                <p className="text-xs text-neutral-400">Resumen real de ventas cobradas hoy</p>
+              </div>
+              {metrics.topProductsToday.length > 0 && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[#151515] text-neutral-400 border border-neutral-800">
+                  Top {metrics.topProductsToday.length}
+                </span>
+              )}
             </div>
-            {metrics.topProductsToday.length > 0 && (
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[#151515] text-neutral-400 border border-neutral-800">
-                Top {metrics.topProductsToday.length}
-              </span>
+
+            {metrics.topProductsToday.length === 0 ? (
+              <div className="py-10 px-4 bg-[#151515] rounded-xl border border-neutral-800/70 text-center space-y-2">
+                <div className="w-10 h-10 rounded-full bg-[#222222] border border-neutral-800 flex items-center justify-center mx-auto text-neutral-500">
+                  <BarChart3 className="w-5 h-5" />
+                </div>
+                <p className="text-xs font-semibold text-neutral-200">
+                  Aún no hay productos vendidos en el turno de hoy
+                </p>
+                <p className="text-[11px] text-neutral-500 max-w-md mx-auto">
+                  Cuando registres cobros desde la Terminal de Mozos (POS), aquí verás el ranking real por unidades vendidas y monto acumulado.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {metrics.topProductsToday.map((prod) => (
+                  <div
+                    key={prod.name}
+                    className="p-3 bg-[#151515] rounded-lg border border-neutral-800/60 flex items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded bg-[#222222] flex items-center justify-center text-orange-500 shrink-0">
+                        {prod.isDrink ? (
+                          <Beer className="w-4 h-4" />
+                        ) : (
+                          <UtensilsCrossed className="w-4 h-4" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="text-xs font-semibold text-white truncate">{prod.name}</h4>
+                        <p className="text-[10px] text-neutral-400">
+                          {prod.category} • {prod.quantity}{' '}
+                          {prod.quantity === 1 ? 'unidad' : 'unidades'}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-white font-mono shrink-0">
+                      {formatGs(prod.total)} Gs.
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-
-          {metrics.topProductsToday.length === 0 ? (
-            <div className="py-7 px-4 bg-[#151515] rounded-xl border border-neutral-800/70 text-center space-y-1.5">
-              <ShoppingBag className="w-5 h-5 text-neutral-600 mx-auto" />
-              <p className="text-xs font-medium text-neutral-300">
-                Sin productos vendidos hoy
-              </p>
-              <p className="text-[11px] text-neutral-500">
-                Aparecerán aquí automáticamente al registrar cobros en el POS.
-              </p>
-            </div>
-          ) : (
-            <div className="divide-y divide-neutral-800/70 bg-[#151515] rounded-xl border border-neutral-800/70">
-              {metrics.topProductsToday.map((prod) => (
-                <div
-                  key={prod.name}
-                  className="px-3.5 py-2.5 flex items-center justify-between gap-3"
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-7 h-7 rounded-md bg-[#222222] flex items-center justify-center text-orange-500 shrink-0">
-                      {prod.isDrink ? (
-                        <Beer className="w-3.5 h-3.5" />
-                      ) : (
-                        <UtensilsCrossed className="w-3.5 h-3.5" />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <h4 className="text-xs font-semibold text-white truncate">
-                        {prod.name}
-                      </h4>
-                      <p className="text-[10px] text-neutral-400">
-                        {prod.quantity} {prod.quantity === 1 ? 'unidad' : 'unidades'}
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-xs font-bold text-white font-mono shrink-0">
-                    {formatGs(prod.total)} Gs.
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
-        {/* Tarjeta discreta para pasar a Versión Pro */}
-        <div className="bg-[#222222] border border-neutral-800/80 rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-orange-600/20 text-orange-400 border border-orange-500/40">
-                <Sparkles className="w-3 h-3 text-orange-500" />
-                <span>PRO</span>
-              </span>
-              <span className="text-[10px] text-neutral-500 font-medium">Plan actual: Gratuito</span>
+        {/* Estado Operativo en Vivo (Salón, Cocina, Barra y Hora Pico) */}
+        <div className="bg-[#222222] border border-neutral-800/80 rounded-xl p-5 flex flex-col justify-between gap-4">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white">Estado Operativo en Vivo</h3>
+                <p className="text-xs text-neutral-400">Actividad actual del local</p>
+              </div>
+              <Activity className="w-4 h-4 text-orange-500" />
             </div>
 
-            <div className="space-y-1">
-              <h3 className="text-sm font-bold text-white">
-                Lleva tu local al siguiente nivel
-              </h3>
-              <p className="text-xs text-neutral-400 leading-relaxed">
-                Desbloquea gráficos y métricas avanzadas, Menú Digital QR descargable, Landing Page propia y mejora de fotos y textos de carta con IA.
-              </p>
+            {/* Desglose real de comandas por estación */}
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="p-3 bg-[#151515] rounded-lg border border-neutral-800">
+                <div className="flex items-center gap-1.5 text-[11px] text-neutral-400 mb-1">
+                  <ChefHat className="w-3.5 h-3.5 text-orange-500" />
+                  <span>Cocina</span>
+                </div>
+                <div className="text-lg font-bold text-white font-mono">
+                  {metrics.cocinaComandasCount}
+                </div>
+                <span className="text-[10px] text-neutral-500">
+                  {metrics.cocinaComandasCount === 1 ? 'comanda activa' : 'comandas activas'}
+                </span>
+              </div>
+
+              <div className="p-3 bg-[#151515] rounded-lg border border-neutral-800">
+                <div className="flex items-center gap-1.5 text-[11px] text-neutral-400 mb-1">
+                  <Coffee className="w-3.5 h-3.5 text-orange-500" />
+                  <span>Barra</span>
+                </div>
+                <div className="text-lg font-bold text-white font-mono">
+                  {metrics.barraComandasCount}
+                </div>
+                <span className="text-[10px] text-neutral-500">
+                  {metrics.barraComandasCount === 1 ? 'comanda activa' : 'comandas activas'}
+                </span>
+              </div>
+            </div>
+
+            {/* Mesas con movimiento en este momento */}
+            <div className="p-3 bg-[#151515] rounded-lg border border-neutral-800 space-y-2">
+              <span className="text-[11px] font-semibold text-neutral-300 block">
+                Cuentas / Mesas con Actividad
+              </span>
+              {metrics.activeTables.length === 0 ? (
+                <p className="text-[11px] text-neutral-500">
+                  No hay mesas con pedidos abiertos ni comandas pendientes.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {metrics.activeTables.map((tableName) => (
+                    <span
+                      key={tableName}
+                      className="text-[11px] font-semibold px-2 py-0.5 rounded bg-[#222222] text-orange-400 border border-orange-600/40"
+                    >
+                      {tableName}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Franja de mayor movimiento (solo con datos reales suficientes) */}
+            <div className="p-3 bg-[#151515] rounded-lg border border-neutral-800 space-y-1">
+              <span className="text-[11px] font-semibold text-neutral-300 block">
+                Franja Horaria Pico (Hoy)
+              </span>
+              {metrics.peakHourInfo ? (
+                <div className="space-y-0.5">
+                  <div className="text-xs font-bold text-orange-400 font-mono">
+                    {metrics.peakHourInfo.range}
+                  </div>
+                  <p className="text-[11px] text-neutral-400">
+                    {metrics.peakHourInfo.count}{' '}
+                    {metrics.peakHourInfo.count === 1 ? 'venta' : 'ventas'} •{' '}
+                    {formatGs(metrics.peakHourInfo.total)} Gs.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-[11px] text-neutral-500">
+                  Aún no hay suficientes ventas hoy para determinar la hora pico.
+                </p>
+              )}
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => onOpenProModal && onOpenProModal()}
-            className="w-full py-2.5 px-3.5 rounded-lg bg-[#151515] hover:bg-neutral-800 text-orange-400 hover:text-orange-300 text-xs font-semibold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-orange-500/40 active:scale-95"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-orange-500" />
-            <span>Convertirse a Pro</span>
-          </button>
+          <div className="pt-3 border-t border-neutral-800">
+            <button
+              type="button"
+              onClick={() => navigate('/pos-terminal')}
+              className="w-full py-2.5 px-3 rounded-lg bg-[#151515] hover:bg-neutral-800 text-neutral-300 hover:text-white text-xs font-semibold uppercase tracking-wider transition-colors cursor-pointer border border-neutral-800"
+            >
+              Abrir POS en este equipo
+            </button>
+          </div>
         </div>
       </div>
     </div>

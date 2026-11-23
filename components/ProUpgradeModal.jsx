@@ -14,26 +14,22 @@ const PRO_BENEFITS = [
   {
     icon: BarChart3,
     title: 'Métricas avanzadas y gráficos',
-    description:
-      'Evolución de ventas por fecha, horas pico reales, comparativas por turno y análisis por categoría.'
+    description: 'Evolución por fecha, horas pico y comparativas por turno.'
   },
   {
     icon: QrCode,
     title: 'Menú Digital QR descargable',
-    description:
-      'Carta móvil sincronizada al instante con tus productos y precios, lista para descargar e imprimir por mesa.'
+    description: 'Carta móvil en vivo, lista para descargar e imprimir por mesa.'
   },
   {
     icon: Globe,
-    title: 'Landing Page comercial del restaurante',
-    description:
-      'Página web profesional auto-generada para tu local con carta online, horarios, ubicación y contacto directo.'
+    title: 'Landing comercial del local',
+    description: 'Web profesional con carta online, horarios y contacto directo.'
   },
   {
     icon: Wand2,
-    title: 'Mejora de fotos y textos de carta con IA',
-    description:
-      'Optimiza automáticamente las fotos de tus platos y redacta descripciones tentadoras para vender más.'
+    title: 'Fotos y textos con IA',
+    description: 'Optimiza fotos de tus platos y descripciones para vender más.'
   }
 ];
 
@@ -59,30 +55,30 @@ export const ProUpgradeModal = ({ isOpen, onClose, userEmail }) => {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-4"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="pro-upgrade-modal-title"
     >
       <div
-        className="bg-[#222222] border border-neutral-800 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col max-h-[92vh]"
+        className="bg-[#222222] border border-neutral-800 rounded-2xl max-w-lg sm:max-w-xl w-full overflow-hidden shadow-2xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Encabezado */}
-        <div className="p-5 bg-[#151515] border-b border-neutral-800 flex items-start justify-between gap-3">
-          <div className="space-y-1">
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-orange-600/20 text-orange-400 border border-orange-500/40">
-              <Sparkles className="w-3 h-3 text-orange-500" />
+        {/* Encabezado compacto */}
+        <div className="px-4 py-3 sm:px-5 sm:py-3.5 bg-[#151515] border-b border-neutral-800 flex items-start justify-between gap-3">
+          <div className="space-y-0.5 min-w-0">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-orange-600/20 text-orange-400 border border-orange-500/40">
+              <Sparkles className="w-2.5 h-2.5 text-orange-500" />
               <span>Versión Pro</span>
             </span>
             <h2
               id="pro-upgrade-modal-title"
-              className="text-lg font-bold text-white tracking-tight"
+              className="text-base sm:text-lg font-bold text-white tracking-tight leading-snug"
             >
               Convertirse a GastroPOS Pro
             </h2>
-            <p className="text-xs text-neutral-400">
+            <p className="text-[11px] sm:text-xs text-neutral-400 leading-snug">
               Potencia las ventas, imagen comercial y control de tu restaurante.
             </p>
           </div>
@@ -97,12 +93,12 @@ export const ProUpgradeModal = ({ isOpen, onClose, userEmail }) => {
           </button>
         </div>
 
-        {/* Contenido */}
-        <div className="p-5 overflow-y-auto space-y-3">
+        {/* Contenido sin scroll */}
+        <div className="p-3.5 sm:p-4">
           {requested ? (
-            <div className="py-6 px-4 bg-[#151515] border border-orange-600/40 rounded-xl text-center space-y-3">
-              <div className="w-12 h-12 rounded-full bg-orange-600/15 border border-orange-500/40 flex items-center justify-center mx-auto">
-                <CheckCircle2 className="w-6 h-6 text-orange-500" />
+            <div className="py-5 px-4 bg-[#151515] border border-orange-600/40 rounded-xl text-center space-y-2.5">
+              <div className="w-10 h-10 rounded-full bg-orange-600/15 border border-orange-500/40 flex items-center justify-center mx-auto">
+                <CheckCircle2 className="w-5 h-5 text-orange-500" />
               </div>
               <div className="space-y-1">
                 <h3 className="text-sm font-bold text-white">
@@ -115,22 +111,22 @@ export const ProUpgradeModal = ({ isOpen, onClose, userEmail }) => {
               </div>
             </div>
           ) : (
-            <div className="space-y-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
               {PRO_BENEFITS.map((benefit) => {
                 const Icon = benefit.icon;
                 return (
                   <div
                     key={benefit.title}
-                    className="p-3.5 bg-[#151515] border border-neutral-800 rounded-xl flex items-start gap-3"
+                    className="p-2.5 sm:p-3 bg-[#151515] border border-neutral-800 rounded-xl flex items-start gap-2.5"
                   >
-                    <div className="w-9 h-9 rounded-lg bg-[#222222] border border-neutral-800 flex items-center justify-center shrink-0">
-                      <Icon className="w-4 h-4 text-orange-500" />
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-[#222222] border border-neutral-800 flex items-center justify-center shrink-0">
+                      <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-orange-500" />
                     </div>
                     <div className="min-w-0 space-y-0.5">
-                      <h3 className="text-xs font-bold text-white">
+                      <h3 className="text-xs font-bold text-white leading-tight">
                         {benefit.title}
                       </h3>
-                      <p className="text-[11px] text-neutral-400 leading-relaxed">
+                      <p className="text-[11px] text-neutral-400 leading-snug">
                         {benefit.description}
                       </p>
                     </div>
@@ -141,12 +137,12 @@ export const ProUpgradeModal = ({ isOpen, onClose, userEmail }) => {
           )}
         </div>
 
-        {/* Pie de acciones */}
-        <div className="p-4 bg-[#151515] border-t border-neutral-800 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5">
+        {/* Pie de acciones compacto en una fila */}
+        <div className="px-4 py-3 bg-[#151515] border-t border-neutral-800 flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="py-2.5 px-4 rounded-lg bg-[#222222] hover:bg-neutral-800 text-neutral-300 hover:text-white text-xs font-semibold uppercase tracking-wider border border-neutral-800 transition-colors cursor-pointer"
+            className="shrink-0 py-2 px-3.5 sm:px-4 rounded-lg bg-[#222222] hover:bg-neutral-800 text-neutral-300 hover:text-white text-[11px] sm:text-xs font-semibold uppercase tracking-wider border border-neutral-800 transition-colors cursor-pointer"
           >
             {requested ? 'Cerrar' : 'Ahora no'}
           </button>
@@ -155,11 +151,11 @@ export const ProUpgradeModal = ({ isOpen, onClose, userEmail }) => {
             <button
               type="button"
               onClick={() => setRequested(true)}
-              className="py-2.5 px-5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors cursor-pointer active:scale-95 shadow-sm"
+              className="flex-1 sm:flex-none py-2 px-3.5 sm:px-5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-[11px] sm:text-xs font-semibold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors cursor-pointer active:scale-95 shadow-sm whitespace-nowrap"
             >
-              <Sparkles className="w-3.5 h-3.5" />
+              <Sparkles className="w-3.5 h-3.5 shrink-0" />
               <span>Solicitar / Activar Pro</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              <ArrowRight className="w-3.5 h-3.5 shrink-0" />
             </button>
           )}
         </div>

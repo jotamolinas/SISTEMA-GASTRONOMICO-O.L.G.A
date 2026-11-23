@@ -1,10 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AdminSidebar } from './AdminSidebar';
 import { DashboardHome } from './DashboardHome';
 import { InventoryManager } from './InventoryManager';
 import { ProUpgradeModal } from './ProUpgradeModal';
+import { StoreLocationMapPicker } from './StoreLocationMapPicker';
 import { useCartStore } from '../store/useCartStore';
+import {
+  getCachedBusinessConfig,
+  subscribeBusinessConfig,
+  saveBusinessConfig,
+  buildGoogleMapsUrl
+} from '../services/businessConfigService';
 import { 
   Tablet, 
   ExternalLink, 
@@ -12,7 +19,9 @@ import {
   Check, 
   Copy, 
   Printer,
-  Sparkles
+  Sparkles,
+  Save,
+  AlertCircle
 } from 'lucide-react';
 
 export const AdminLayout = ({ currentUser, onLogout }) => {
@@ -21,6 +30,68 @@ export const AdminLayout = ({ currentUser, onLogout }) => {
   const [activeSection, setActiveSection] = useState('tablero');
   const [copiedMenuLink, setCopiedMenuLink] = useState(false);
   const [isProModalOpen, setIsProModalOpen] = useState(false);
+
+  const [businessConfig, setBusinessConfig] = useState(() => getCachedBusinessConfig());
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
+  const [configFeedback, setConfigFeedback] = useState({ type: '', text: '' });
+
+  useEffect(() => {
+    const unsubscribe = subscribeBusinessConfig((config) => {
+      setBusinessConfig(config);
+    });
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, []);
+
+  const handleConfigChange = (field, value) => {
+    setBusinessConfig((prev) => ({
+      ...prev,
+      [field]: value
+    }));
+    if (configFeedback.text) {
+      setConfigFeedback({ type: '', text: '' });
+    }
+  };
+
+  const handleLocationPinChange = (nextLat, nextLng) => {
+    setBusinessConfig((prev) => ({
+      ...prev,
+      lat: nextLat,
+      lng: nextLng,
+      mapsUrl: nextLat !== null && nextLng !== null ? buildGoogleMapsUrl(nextLat, nextLng) : ''
+    }));
+    if (configFeedback.text) {
+      setConfigFeedback({ type: '', text: '' });
+    }
+  };
+
+  const handleSaveBusinessConfig = async (e) => {
+    if (e) e.preventDefault();
+    if (isSavingConfig) return;
+
+    setIsSavingConfig(true);
+    setConfigFeedback({ type: '', text: '' });
+
+    try {
+      const saved = await saveBusinessConfig(businessConfig);
+      setBusinessConfig(saved);
+      setConfigFeedback({
+        type: 'success',
+        text: 'Datos del local guardados y listos para el ticket térmico.'
+      });
+    } catch (err) {
+      console.error('Error al guardar configuración del local:', err);
+      setConfigFeedback({
+        type: 'error',
+        text: 'Se guardó en este equipo, pero hubo un error al sincronizar.'
+      });
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
 
   const realTableNames = Object.keys(tableCarts || {});
 
@@ -50,7 +121,7 @@ export const AdminLayout = ({ currentUser, onLogout }) => {
         return <DashboardHome onOpenProModal={() => setIsProModalOpen(true)} />;
 
       case 'inventario':
-        return <InventoryManager />;
+        return <InventoryManager onOpenProModal={() => setIsProModalOpen(true)} />;
 
       case 'menu-qr':
         return (
@@ -128,48 +199,140 @@ export const AdminLayout = ({ currentUser, onLogout }) => {
             <div className="bg-[#222222] border border-neutral-800 p-5 rounded-xl">
               <h2 className="text-lg font-bold text-white">Parámetros del Restaurante</h2>
               <p className="text-xs text-neutral-400 mt-0.5">
-                Configuración de negocio, moneda, impuestos e impresoras.
+                Datos comerciales del local, encabezado de tickets térmicos (80mm), moneda e impresora.
               </p>
             </div>
 
-            <div className="bg-[#222222] border border-neutral-800 p-5 rounded-xl space-y-4">
+            <form
+              onSubmit={handleSaveBusinessConfig}
+              className="bg-[#222222] border border-neutral-800 p-5 rounded-xl space-y-5"
+            >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs text-neutral-400 block mb-1">Nombre Comercial</label>
+                  <label className="text-xs font-medium text-neutral-300 block mb-1.5">
+                    Nombre Comercial
+                  </label>
                   <input
                     type="text"
-                    defaultValue="GastroPOS Restaurant & Bar"
-                    className="w-full px-3 py-2 bg-[#151515] border border-neutral-800 rounded-lg text-xs text-white"
+                    value={businessConfig.nombreComercial}
+                    onChange={(e) => handleConfigChange('nombreComercial', e.target.value)}
+                    placeholder="Ej: GastroPOS Restaurant & Bar"
+                    className="w-full px-3 py-2 bg-[#151515] border border-neutral-800 rounded-lg text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 transition-colors"
                   />
                 </div>
+
                 <div>
-                  <label className="text-xs text-neutral-400 block mb-1">Moneda</label>
+                  <label className="text-xs font-medium text-neutral-300 block mb-1.5">
+                    RUC
+                  </label>
                   <input
                     type="text"
-                    defaultValue="Guaraníes (Gs. / PYG)"
+                    value={businessConfig.ruc}
+                    onChange={(e) => handleConfigChange('ruc', e.target.value)}
+                    placeholder="Ej: 80012345-6"
+                    className="w-full px-3 py-2 bg-[#151515] border border-neutral-800 rounded-lg text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 transition-colors font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-medium text-neutral-300 block mb-1.5">
+                    Teléfono / WhatsApp
+                  </label>
+                  <input
+                    type="text"
+                    value={businessConfig.telefono}
+                    onChange={(e) => handleConfigChange('telefono', e.target.value)}
+                    placeholder="Ej: +595 981 123 456"
+                    className="w-full px-3 py-2 bg-[#151515] border border-neutral-800 rounded-lg text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-medium text-neutral-300 block mb-1.5">
+                    Impresora Térmica
+                  </label>
+                  <input
+                    type="text"
+                    value={businessConfig.impresora}
+                    onChange={(e) => handleConfigChange('impresora', e.target.value)}
+                    placeholder="ESC/POS 80mm - Red / USB"
+                    className="w-full px-3 py-2 bg-[#151515] border border-neutral-800 rounded-lg text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 transition-colors"
+                  />
+                </div>
+
+                <div className="sm:col-span-2 space-y-3">
+                  <div>
+                    <label className="text-xs font-medium text-neutral-300 block mb-1.5">
+                      Dirección
+                    </label>
+                    <input
+                      type="text"
+                      value={businessConfig.direccion}
+                      onChange={(e) => handleConfigChange('direccion', e.target.value)}
+                      placeholder="Ej: Av. España 1234 c/ Brasil, Asunción"
+                      className="w-full px-3 py-2 bg-[#151515] border border-neutral-800 rounded-lg text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-orange-500 transition-colors"
+                    />
+                  </div>
+
+                  <StoreLocationMapPicker
+                    lat={businessConfig.lat}
+                    lng={businessConfig.lng}
+                    onChangeLocation={handleLocationPinChange}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-neutral-400 block mb-1.5">Moneda</label>
+                  <input
+                    type="text"
+                    value={businessConfig.moneda}
                     disabled
                     className="w-full px-3 py-2 bg-[#151515] border border-neutral-800 rounded-lg text-xs text-neutral-400"
                   />
                 </div>
+
                 <div>
-                  <label className="text-xs text-neutral-400 block mb-1">Impuesto (IVA)</label>
+                  <label className="text-xs text-neutral-400 block mb-1.5">Impuesto (IVA)</label>
                   <input
                     type="text"
-                    defaultValue="10% Incluido"
+                    value={businessConfig.impuesto}
                     disabled
                     className="w-full px-3 py-2 bg-[#151515] border border-neutral-800 rounded-lg text-xs text-neutral-400"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-neutral-400 block mb-1">Impresora Térmica</label>
-                  <input
-                    type="text"
-                    defaultValue="ESC/POS 80mm - Red / USB"
-                    className="w-full px-3 py-2 bg-[#151515] border border-neutral-800 rounded-lg text-xs text-white"
                   />
                 </div>
               </div>
-            </div>
+
+              {configFeedback.text && (
+                <div
+                  className={`px-3.5 py-2.5 rounded-lg border text-xs flex items-center gap-2 ${
+                    configFeedback.type === 'error'
+                      ? 'bg-red-950/60 border-red-800/70 text-red-300'
+                      : 'bg-[#151515] border-orange-500/50 text-orange-400'
+                  }`}
+                >
+                  {configFeedback.type === 'error' ? (
+                    <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                  ) : (
+                    <Check className="w-4 h-4 shrink-0 text-orange-500" />
+                  )}
+                  <span>{configFeedback.text}</span>
+                </div>
+              )}
+
+              <div className="pt-2 border-t border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <p className="text-[11px] text-neutral-400">
+                  El Nombre Comercial, RUC, Dirección y Teléfono / WhatsApp aparecerán en el encabezado del ticket térmico de 80mm.
+                </p>
+                <button
+                  type="submit"
+                  disabled={isSavingConfig}
+                  className="py-2.5 px-5 rounded-lg bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white text-xs font-semibold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer active:scale-95 shrink-0"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSavingConfig ? 'Guardando...' : 'Guardar Configuración'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         );
 

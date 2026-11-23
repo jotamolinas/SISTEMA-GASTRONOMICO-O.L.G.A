@@ -12,6 +12,7 @@
   "dependencies": {
     "@google/genai": "^1.37.0",
     "@types/node": "^22.14.0",
+    "@vis.gl/react-google-maps": "^1.10.2",
     "@vitejs/plugin-react": "^5.0.0",
     "date-fns": "^4.4.0",
     "firebase": "^12.15.0",
