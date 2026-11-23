@@ -90,28 +90,38 @@ export const useCartStore = create(
 
       /**
        * Añade un producto al ticket de la mesa activa actual.
-       * Si el producto ya existe en la mesa, incrementa su cantidad en 1.
-       * Si no existe, lo agrega con cantidad 1.
+       * - Solo agrupa con un ítem existente si todavía NO fue comandado (sentToKitchen === false).
+       * - Si el mismo producto ya fue comandado anteriormente en la mesa, agrega una nueva línea
+       *   con sentToKitchen: false para que al pulsar COMANDA solo se envíen los pedidos nuevos.
        */
       addToCart: (product, targetTable) => {
         set((state) => {
           const table = targetTable || state.activeTable || 'Mesa 1';
           const currentTableCart = state.tableCarts[table] || [];
-          const existingItemIndex = currentTableCart.findIndex((item) => item.id === product.id);
+          const incomingKey = product.variantKey || product.id;
+          const existingUnsentIndex = currentTableCart.findIndex(
+            (item) => !item.sentToKitchen && (item.variantKey || item.id) === incomingKey
+          );
           const qtyToAdd = Math.max(1, Number(product.quantityToAdd) || 1);
 
           let updatedTableCart;
-          if (existingItemIndex > -1) {
+          if (existingUnsentIndex > -1) {
             updatedTableCart = [...currentTableCart];
-            updatedTableCart[existingItemIndex] = {
-              ...updatedTableCart[existingItemIndex],
-              quantity: (updatedTableCart[existingItemIndex].quantity || 1) + qtyToAdd,
+            updatedTableCart[existingUnsentIndex] = {
+              ...updatedTableCart[existingUnsentIndex],
+              quantity: (updatedTableCart[existingUnsentIndex].quantity || 1) + qtyToAdd,
             };
           } else {
+            const idAlreadyExists = currentTableCart.some((item) => item.id === incomingKey);
+            const uniqueLineId = idAlreadyExists
+              ? `${incomingKey}__r${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+              : incomingKey;
+
             updatedTableCart = [
               ...currentTableCart,
               {
-                id: product.id,
+                id: uniqueLineId,
+                variantKey: incomingKey,
                 productId: product.productId || product.id,
                 name: product.name,
                 price: Number(product.price) || 0,
@@ -127,9 +137,40 @@ export const useCartStore = create(
                 customTags: product.customTags || null,
                 itemNote: product.itemNote || '',
                 quantity: qtyToAdd,
+                sentToKitchen: false,
               },
             ];
           }
+
+          return {
+            tableCarts: {
+              ...state.tableCarts,
+              [table]: updatedTableCart,
+            },
+          };
+        });
+      },
+
+      /**
+       * Marca como enviados a cocina/barra (sentToKitchen: true) los ítems especificados
+       * de la mesa sin vaciar la cuenta acumulada.
+       */
+      markItemsAsSent: (targetTable, itemIds) => {
+        set((state) => {
+          const table = targetTable || state.activeTable || 'Mesa 1';
+          const currentTableCart = state.tableCarts[table] || [];
+          const idSet = Array.isArray(itemIds) ? new Set(itemIds) : null;
+          const sentAt = new Date().toISOString();
+
+          const updatedTableCart = currentTableCart.map((item) => {
+            if (item.sentToKitchen) return item;
+            if (idSet && !idSet.has(item.id)) return item;
+            return {
+              ...item,
+              sentToKitchen: true,
+              sentAt,
+            };
+          });
 
           return {
             tableCarts: {
@@ -159,6 +200,25 @@ export const useCartStore = create(
               i.id === productId ? { ...i, quantity: i.quantity - 1 } : i
             );
           }
+
+          return {
+            tableCarts: {
+              ...state.tableCarts,
+              [table]: updatedTableCart,
+            },
+          };
+        });
+      },
+
+      /**
+       * Elimina completamente una línea específica del ticket de la mesa
+       * (usado para quitar ítems pendientes o corregir un ítem comandado tras confirmación inline).
+       */
+      removeLineItem: (lineId, targetTable) => {
+        set((state) => {
+          const table = targetTable || state.activeTable || 'Mesa 1';
+          const currentTableCart = state.tableCarts[table] || [];
+          const updatedTableCart = currentTableCart.filter((i) => i.id !== lineId);
 
           return {
             tableCarts: {
@@ -208,15 +268,29 @@ export const useCartStore = create(
         tableCarts: state.tableCarts,
         activeTable: state.activeTable
       }),
-      merge: (persistedState, currentState) => ({
-        ...currentState,
-        ...persistedState,
-        activeTable: persistedState?.activeTable || 'Mesa 1',
-        tableCarts: {
+      merge: (persistedState, currentState) => {
+        const rawTableCarts = {
           ...DEFAULT_TABLES,
           ...(persistedState?.tableCarts || {})
-        }
-      })
+        };
+        const normalizedTableCarts = {};
+        Object.entries(rawTableCarts).forEach(([tableName, items]) => {
+          normalizedTableCarts[tableName] = Array.isArray(items)
+            ? items.map((item) => ({
+                ...item,
+                variantKey: item.variantKey || item.id,
+                sentToKitchen: Boolean(item.sentToKitchen)
+              }))
+            : [];
+        });
+
+        return {
+          ...currentState,
+          ...persistedState,
+          activeTable: persistedState?.activeTable || 'Mesa 1',
+          tableCarts: normalizedTableCarts
+        };
+      }
     }
   )
 );

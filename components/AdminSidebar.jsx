@@ -11,12 +11,14 @@ import {
   X, 
   Tablet,
   ChefHat,
-  Coffee
+  Coffee,
+  Sparkles
 } from 'lucide-react';
 
 export const AdminSidebar = ({ 
   activeSection = 'tablero', 
   onSelectSection, 
+  onOpenProModal,
   currentUser, 
   onLogout 
 }) => {
@@ -24,14 +26,19 @@ export const AdminSidebar = ({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = [
-    { id: 'tablero', label: 'Tablero (Métricas)', icon: LayoutDashboard },
+    { id: 'tablero', label: 'Tablero', icon: LayoutDashboard },
     { id: 'inventario', label: 'Inventario Rápido', icon: Package },
-    { id: 'menu-qr', label: 'Menú QR y Landing', icon: QrCode },
+    { id: 'menu-qr', label: 'Menú QR y Landing', icon: QrCode, isPro: true },
     { id: 'configuracion', label: 'Configuración', icon: Settings }
   ];
 
   const handleNavClick = (sectionId) => {
     if (onSelectSection) onSelectSection(sectionId);
+    setMobileMenuOpen(false);
+  };
+
+  const handleOpenPro = () => {
+    if (onOpenProModal) onOpenProModal();
     setMobileMenuOpen(false);
   };
 
@@ -107,14 +114,27 @@ export const AdminSidebar = ({
                 key={item.id}
                 type="button"
                 onClick={() => handleNavClick(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
                   isSelected
                     ? 'bg-orange-600 text-white font-semibold'
                     : 'text-neutral-400 hover:text-white hover:bg-[#222222]'
                 }`}
               >
-                <Icon className={`w-4 h-4 ${isSelected ? 'text-white' : 'text-neutral-400'}`} />
-                <span>{item.label}</span>
+                <span className="flex items-center gap-3 min-w-0">
+                  <Icon className={`w-4 h-4 shrink-0 ${isSelected ? 'text-white' : 'text-neutral-400'}`} />
+                  <span className="truncate">{item.label}</span>
+                </span>
+                {item.isPro && (
+                  <span
+                    className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0 ${
+                      isSelected
+                        ? 'bg-white/20 text-white'
+                        : 'bg-orange-600/20 text-orange-400 border border-orange-500/30'
+                    }`}
+                  >
+                    PRO
+                  </span>
+                )}
               </button>
             );
           })}
@@ -159,8 +179,17 @@ export const AdminSidebar = ({
           </div>
         </nav>
 
-        {/* Pie del menú */}
-        <div className="p-4 border-t border-neutral-800 bg-[#151515]">
+        {/* Pie del menú con botón discreto Pasar a Pro */}
+        <div className="p-4 border-t border-neutral-800 bg-[#151515] space-y-2.5">
+          <button
+            type="button"
+            onClick={handleOpenPro}
+            className="w-full py-2 px-3 rounded-lg bg-[#222222] hover:bg-neutral-800 text-orange-400 hover:text-orange-300 border border-orange-500/40 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors cursor-pointer active:scale-95"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-orange-500" />
+            <span>Pasar a Pro</span>
+          </button>
+
           <div className="flex items-center justify-between gap-2">
             <button
               type="button"
